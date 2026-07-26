@@ -15,6 +15,17 @@ vi.stubGlobal('localStorage', localStorageMock);
 // ── Mock openai ─────────────────────────────────────────────────────────────
 const mockCreate = vi.fn();
 
+/**
+ * 创建一个模拟的异步可迭代流
+ * @param {Array} chunks
+ * @returns {AsyncIterable}
+ */
+async function* createMockStream(chunks) {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+}
+
 vi.mock('openai', () => {
   const MockOpenAI = vi.fn(function () {
     return {
@@ -61,7 +72,7 @@ describe('asr 函数', () => {
     mockCreate.mockResolvedValue(mockResponse);
 
     const base64Data = 'dGVzdCBhdWRpbw==';
-    const result = await asr(base64Data, { language: 'zh', format: 'wav' });
+    const result = await asr(base64Data, { language: 'zh', format: 'wav', stream: false });
 
     // 验证 OpenAI 客户端使用正确的配置
     const OpenAI = (await import('openai')).default;
@@ -93,15 +104,16 @@ describe('asr 函数', () => {
           language: 'zh',
         },
       },
+      stream: false,
     });
 
     // 验证返回结果为 JSON 字符串
     expect(result).toBe(JSON.stringify(mockResponse, null, 2));
   });
 
-  it('应使用默认参数（language=zh, format=wav）', async () => {
+  it('应使用默认参数（language=auto, format=wav, stream=true）', async () => {
     localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    mockCreate.mockResolvedValue({});
+    mockCreate.mockResolvedValue(createMockStream([]));
 
     await asr('dGVzdA==');
 
@@ -109,9 +121,10 @@ describe('asr 函数', () => {
       expect.objectContaining({
         extra_body: {
           asr_options: {
-            language: 'zh',
+            language: 'auto',
           },
         },
+        stream: true,
       }),
     );
 
@@ -127,7 +140,7 @@ describe('asr 函数', () => {
     await expect(asr('dGVzdA==')).rejects.toThrow('MIMO_API_KEY 未设置');
   });
 
-  it('应返回格式化的 JSON 字符串', async () => {
+  it('非流式模式应返回格式化的 JSON 字符串', async () => {
     localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
 
     const mockResponse = {
@@ -142,12 +155,52 @@ describe('asr 函数', () => {
     };
     mockCreate.mockResolvedValue(mockResponse);
 
-    const result = await asr('dGVzdA==');
+    const result = await asr('dGVzdA==', { stream: false });
 
     // 返回值应为 JSON 字符串
     expect(typeof result).toBe('string');
     const parsed = JSON.parse(result);
     expect(parsed.choices[0].message.content).toContain('[说话人1]');
     expect(parsed.choices[0].message.content).toContain('[说话人2]');
+  });
+
+  it('流式模式应返回异步可迭代对象', async () => {
+    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
+
+    const chunks = [
+      { id: '1', choices: [{ delta: { content: '[说话人1]: 你好' }, index: 0 }] },
+      { id: '2', choices: [{ delta: { content: '\n[说话人2]: 请问' }, index: 0 }] },
+      { id: '3', choices: [{ delta: {}, index: 0, finish_reason: 'stop' }] },
+    ];
+    mockCreate.mockResolvedValue(createMockStream(chunks));
+
+    const stream = await asr('dGVzdA==', { language: 'zh' });
+
+    // 验证返回的是异步可迭代对象
+    expect(stream[Symbol.asyncIterator]).toBeDefined();
+
+    const collected = [];
+    for await (const chunk of stream) {
+      collected.push(chunk);
+    }
+
+    expect(collected).toHaveLength(3);
+    expect(collected[0].choices[0].delta.content).toBe('[说话人1]: 你好');
+    expect(collected[1].choices[0].delta.content).toBe('\n[说话人2]: 请问');
+    expect(collected[2].choices[0].finish_reason).toBe('stop');
+  });
+
+  it('流式模式默认 language 为 auto', async () => {
+    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
+    mockCreate.mockResolvedValue(createMockStream([]));
+
+    await asr('dGVzdA==');
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra_body: { asr_options: { language: 'auto' } },
+        stream: true,
+      }),
+    );
   });
 });
