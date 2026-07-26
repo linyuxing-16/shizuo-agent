@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shizuo Agent 配置</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h1 .logo {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .subtitle {
+      color: var(--text-dim);
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    .field:last-child { margin-bottom: 0; }
+
+    .field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: var(--text-dim);
+    }
+
+    .field label .required {
+      color: var(--danger);
+      margin-left: 2px;
+    }
+
+    .field input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+
+    .field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .field input::placeholder {
+      color: #475569;
+    }
+
+    .field .hint {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .field .status {
+      font-size: 12px;
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .field .status.saved { color: var(--success); }
+    .field .status.empty { color: var(--text-dim); }
+
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: var(--accent-hover); }
+
+    .btn-secondary {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover { background: #475569; }
+
+    .toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-80px);
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      opacity: 0;
+      transition: transform 0.3s ease, opacity 0.3s ease;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: #166534;
+      color: #bbf7d0;
+      border: 1px solid #22c55e;
+    }
+
+    .toast.error {
+      background: #7f1d1d;
+      color: #fecaca;
+      border: 1px solid #ef4444;
+    }
+
+    .toast.info {
+      background: #1e3a5f;
+      color: #bfdbfe;
+      border: 1px solid #3b82f6;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 16px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>
+      <span class="logo">⚙</span>
+      Shizuo Agent 配置
+    </h1>
+    <p class="subtitle">管理 localStorage 中的 API Key 和 Agent 配置</p>
+
+    <!-- OpenAI 配置 -->
+    <div class="card">
+      <div class="card-title">🔑 OpenAI</div>
+      <div class="field">
+        <label>API Key <span class="required">*</span></label>
+        <input
+          type="password"
+          id="openaiApiKey"
+          placeholder="sk-..."
+          autocomplete="off"
+        />
+        <div class="status" id="openaiStatus"></div>
+      </div>
+    </div>
+
+    <!-- Mem0 配置 -->
+    <div class="card">
+      <div class="card-title">🧠 Mem0 记忆服务</div>
+      <div class="field">
+        <label>API Key <span class="required">*</span></label>
+        <input
+          type="password"
+          id="mem0ApiKey"
+          placeholder="m0-..."
+          autocomplete="off"
+        />
+        <div class="status" id="mem0Status"></div>
+      </div>
+      <div class="divider"></div>
+      <div class="field">
+        <label>Agent ID</label>
+        <input
+          type="text"
+          id="mem0AgentId"
+          placeholder="default-agent"
+          autocomplete="off"
+        />
+        <div class="hint">可选，默认为 <code>default-agent</code></div>
+      </div>
+      <div class="field">
+        <label>User ID</label>
+        <input
+          type="text"
+          id="mem0UserId"
+          placeholder="default-user"
+          autocomplete="off"
+        />
+        <div class="hint">可选，默认为 <code>default-user</code></div>
+      </div>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div class="btn-group">
+      <button class="btn btn-primary" id="saveBtn">💾 保存配置</button>
+      <button class="btn btn-secondary" id="clearBtn">🗑 清空</button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ── DOM refs ──────────────────────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const openaiInput     = $('openaiApiKey');
+    const mem0Input       = $('mem0ApiKey');
+    const agentIdInput    = $('mem0AgentId');
+    const userIdInput     = $('mem0UserId');
+    const openaiStatus    = $('openaiStatus');
+    const mem0Status      = $('mem0Status');
+    const saveBtn         = $('saveBtn');
+    const clearBtn        = $('clearBtn');
+    const toastEl         = $('toast');
+
+    // ── Toast ─────────────────────────────────────────────────────────────
+    let toastTimer = null;
+
+    function showToast(message, type = 'info') {
+      clearTimeout(toastTimer);
+      toastEl.textContent = message;
+      toastEl.className = `toast ${type} show`;
+      toastTimer = setTimeout(() => { toastEl.classList.remove('show'); }, 2500);
+    }
+
+    // ── 加载已保存的值 ──────────────────────────────────────────────────
+    function loadConfig() {
+      openaiInput.value   = localStorage.getItem('OPENAI_API_KEY') || '';
+      mem0Input.value     = localStorage.getItem('MEM0_API_KEY') || '';
+      agentIdInput.value  = localStorage.getItem('MEM0_AGENT_ID') || '';
+      userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
+      updateStatus();
+    }
+
+    // ── 状态指示 ─────────────────────────────────────────────────────────
+    function updateStatus() {
+      openaiStatus.textContent = openaiInput.value
+        ? `✓ 已配置 (${maskKey(openaiInput.value)})`
+        : '○ 未配置';
+      openaiStatus.className = `status ${openaiInput.value ? 'saved' : 'empty'}`;
+
+      mem0Status.textContent = mem0Input.value
+        ? `✓ 已配置 (${maskKey(mem0Input.value)})`
+        : '○ 未配置';
+      mem0Status.className = `status ${mem0Input.value ? 'saved' : 'empty'}`;
+    }
+
+    function maskKey(key) {
+      if (key.length <= 8) return key;
+      return key.slice(0, 4) + '…' + key.slice(-4);
+    }
+
+    // ── 保存 ─────────────────────────────────────────────────────────────
+    function saveConfig() {
+      const openaiKey = openaiInput.value.trim();
+      const mem0Key   = mem0Input.value.trim();
+      const agentId   = agentIdInput.value.trim() || 'default-agent';
+      const userId    = userIdInput.value.trim() || 'default-user';
+
+      if (!openaiKey) {
+        showToast('请填写 OpenAI API Key', 'error');
+        openaiInput.focus();
+        return;
+      }
+
+      if (!mem0Key) {
+        showToast('请填写 Mem0 API Key', 'error');
+        mem0Input.focus();
+        return;
+      }
+
+      localStorage.setItem('OPENAI_API_KEY', openaiKey);
+      localStorage.setItem('MEM0_API_KEY', mem0Key);
+      localStorage.setItem('MEM0_AGENT_ID', agentId);
+      localStorage.setItem('MEM0_USER_ID', userId);
+
+      updateStatus();
+      showToast('✅ 配置已保存到 localStorage', 'success');
+    }
+
+    // ── 清空 ─────────────────────────────────────────────────────────────
+    function clearConfig() {
+      localStorage.removeItem('OPENAI_API_KEY');
+      localStorage.removeItem('MEM0_API_KEY');
+      localStorage.removeItem('MEM0_AGENT_ID');
+      localStorage.removeItem('MEM0_USER_ID');
+
+      openaiInput.value   = '';
+      mem0Input.value     = '';
+      agentIdInput.value  = '';
+      userIdInput.value   = '';
+
+      updateStatus();
+      showToast('🗑 配置已清空', 'info');
+    }
+
+    // ── 实时输入监听 ────────────────────────────────────────────────────
+    openaiInput.addEventListener('input', updateStatus);
+    mem0Input.addEventListener('input', updateStatus);
+
+    // ── 按钮事件 ─────────────────────────────────────────────────────────
+    saveBtn.addEventListener('click', saveConfig);
+    clearBtn.addEventListener('click', clearConfig);
+
+    // ── Ctrl+S 快捷键 ────────────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        saveConfig();
+      }
+    });
+
+    // ── 启动时加载 ───────────────────────────────────────────────────────
+    loadConfig();
+  </script>
+</body>
+</html>
