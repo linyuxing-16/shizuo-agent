@@ -274,6 +274,22 @@
       </div>
     </div>
 
+    <!-- MIMO ASR 配置 -->
+    <div class="card">
+      <div class="card-title">🎤 MIMO 语音识别 (ASR)</div>
+      <div class="field">
+        <label>API Key <span class="required">*</span></label>
+        <input
+          type="password"
+          id="mimoApiKey"
+          placeholder="mimo-..."
+          autocomplete="off"
+        />
+        <div class="status" id="mimoStatus"></div>
+        <div class="hint">用于 ASR 语音识别服务，需在 <code>localStorage</code> 中配置 <code>MIMO_API_KEY</code></div>
+      </div>
+    </div>
+
     <!-- 操作按钮 -->
     <div class="btn-group">
       <button class="btn btn-primary" id="saveBtn">💾 保存配置</button>
@@ -291,8 +307,10 @@
     const mem0Input       = $('mem0ApiKey');
     const agentIdInput    = $('mem0AgentId');
     const userIdInput     = $('mem0UserId');
+    const mimoInput       = $('mimoApiKey');
     const openaiStatus    = $('openaiStatus');
     const mem0Status      = $('mem0Status');
+    const mimoStatus      = $('mimoStatus');
     const saveBtn         = $('saveBtn');
     const clearBtn        = $('clearBtn');
     const toastEl         = $('toast');
@@ -313,6 +331,7 @@
       mem0Input.value     = localStorage.getItem('MEM0_API_KEY') || '';
       agentIdInput.value  = localStorage.getItem('MEM0_AGENT_ID') || '';
       userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
+      mimoInput.value     = localStorage.getItem('MIMO_API_KEY') || '';
       updateStatus();
     }
 
@@ -327,6 +346,11 @@
         ? `✓ 已配置 (${maskKey(mem0Input.value)})`
         : '○ 未配置';
       mem0Status.className = `status ${mem0Input.value ? 'saved' : 'empty'}`;
+
+      mimoStatus.textContent = mimoInput.value
+        ? `✓ 已配置 (${maskKey(mimoInput.value)})`
+        : '○ 未配置';
+      mimoStatus.className = `status ${mimoInput.value ? 'saved' : 'empty'}`;
     }
 
     function maskKey(key) {
@@ -340,6 +364,7 @@
       const mem0Key   = mem0Input.value.trim();
       const agentId   = agentIdInput.value.trim() || 'default-agent';
       const userId    = userIdInput.value.trim() || 'default-user';
+      const mimoKey   = mimoInput.value.trim();
 
       if (!openaiKey) {
         showToast('请填写 OpenAI API Key', 'error');
@@ -353,10 +378,17 @@
         return;
       }
 
+      if (!mimoKey) {
+        showToast('请填写 MIMO API Key', 'error');
+        mimoInput.focus();
+        return;
+      }
+
       localStorage.setItem('OPENAI_API_KEY', openaiKey);
       localStorage.setItem('MEM0_API_KEY', mem0Key);
       localStorage.setItem('MEM0_AGENT_ID', agentId);
       localStorage.setItem('MEM0_USER_ID', userId);
+      localStorage.setItem('MIMO_API_KEY', mimoKey);
 
       updateStatus();
       showToast('✅ 配置已保存到 localStorage', 'success');
@@ -368,11 +400,13 @@
       localStorage.removeItem('MEM0_API_KEY');
       localStorage.removeItem('MEM0_AGENT_ID');
       localStorage.removeItem('MEM0_USER_ID');
+      localStorage.removeItem('MIMO_API_KEY');
 
       openaiInput.value   = '';
       mem0Input.value     = '';
       agentIdInput.value  = '';
       userIdInput.value   = '';
+      mimoInput.value     = '';
 
       updateStatus();
       showToast('🗑 配置已清空', 'info');
@@ -381,6 +415,7 @@
     // ── 实时输入监听 ────────────────────────────────────────────────────
     openaiInput.addEventListener('input', updateStatus);
     mem0Input.addEventListener('input', updateStatus);
+    mimoInput.addEventListener('input', updateStatus);
 
     // ── 按钮事件 ─────────────────────────────────────────────────────────
     saveBtn.addEventListener('click', saveConfig);
