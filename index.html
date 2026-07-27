@@ -625,7 +625,7 @@
     // ── Imports ──────────────────────────────────────────────────────────
     import { loadOml2d } from 'oh-my-live2d';
     import { voiceActivate } from './src/wakeword.js';
-    import agent from './src/agent.js';
+    import agent, { streamAgent } from './src/agent.js';
 
     // ── DOM refs ─────────────────────────────────────────────────────────
     const $ = (id) => document.getElementById(id);
@@ -897,21 +897,40 @@
 
         addMessage('user', transcript);
         setStatus('thinking', 'AI 正在思考…');
-        addThinking();
+
+        // 创建空的消息气泡，后续流式填充
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'msg assistant';
+        msgDiv.innerHTML = `
+          <div class="msg-avatar">🤖</div>
+          <div>
+            <span class="msg-label">${live2dNameEl.textContent}</span>
+            <div class="msg-bubble"></div>
+          </div>
+        `;
+        messagesPanel.appendChild(msgDiv);
+        scrollToBottom();
+        const bubbleEl = msgDiv.querySelector('.msg-bubble');
 
         let aiContent = '';
         try {
-          const response = await agent.invoke(
-            { messages: [{ role: 'user', content: transcript }] },
+          for await (const chunk of streamAgent(
+            [{ role: 'user', content: transcript }],
             { configurable: { threadId: THREAD_ID } },
-          );
-          aiContent = response.messages?.[response.messages.length - 1]?.content || '抱歉，我没有理解您的意思。';
+          )) {
+            aiContent += chunk;
+            bubbleEl.textContent = aiContent;
+            scrollToBottom();
+          }
+
+          if (!aiContent.trim()) {
+            bubbleEl.textContent = '抱歉，我没有理解您的意思。';
+          }
         } catch (err) {
-          aiContent = `请求失败：${err.message}`;
+          bubbleEl.textContent = `请求失败：${err.message}`;
         }
 
         removeThinking();
-        addMessage('assistant', aiContent);
         setStatus('idle', '就绪 — 唤醒词激活后自动开始下一轮对话');
 
       } catch (err) {
