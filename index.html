@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Shizuo Agent — AI 语音助手</title>
+  <style>
+    /* ── Reset & Variables ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f172a;
+      --bg-alt: #1e293b;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --text-muted: #64748b;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --accent-glow: rgba(59, 130, 246, 0.3);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --thinking: #7c3aed;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --transition: 0.2s ease;
+      --live2d-size: 220px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 12px;
+      padding-top: max(12px, env(safe-area-inset-top));
+    }
+
+    .app {
+      width: 100%;
+      max-width: 820px;
+      display: flex;
+      flex-direction: column;
+      min-height: calc(100vh - 24px);
+      min-height: calc(100dvh - 24px);
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .brand-text h1 {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .brand-text .subtitle {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      min-width: 40px;
+      min-height: 40px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text-dim);
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+      text-decoration: none;
+      touch-action: manipulation;
+      user-select: none;
+    }
+
+    .icon-btn:hover {
+      background: var(--bg-alt);
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    .icon-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* ── Status Bar ────────────────────────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+      margin: 10px 0;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background var(--transition), box-shadow var(--transition);
+    }
+
+    .status-indicator.idle      { background: var(--text-muted); }
+    .status-indicator.loading   { background: var(--warning); box-shadow: 0 0 6px var(--warning); animation: pulse 1s ease-in-out infinite; }
+    .status-indicator.listening { background: var(--success); box-shadow: 0 0 8px rgba(34,197,94,0.5); animation: pulse 1.2s ease-in-out infinite; }
+    .status-indicator.recording { background: var(--danger); box-shadow: 0 0 8px rgba(239,68,68,0.5); animation: pulse 0.6s ease-in-out infinite; }
+    .status-indicator.processing{ background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); animation: pulse 0.8s ease-in-out infinite; }
+    .status-indicator.thinking  { background: var(--thinking); box-shadow: 0 0 8px rgba(124,58,237,0.5); animation: pulse 0.9s ease-in-out infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.5; }
+    }
+
+    .status-text {
+      font-size: 13px;
+      color: var(--text-dim);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status-wave {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 20px;
+    }
+
+    .status-wave span {
+      width: 3px;
+      background: var(--accent);
+      border-radius: 2px;
+      animation: wave 0.5s ease-in-out infinite alternate;
+    }
+
+    .status-wave span:nth-child(1) { height: 6px;  animation-delay: 0s; }
+    .status-wave span:nth-child(2) { height: 12px; animation-delay: 0.1s; }
+    .status-wave span:nth-child(3) { height: 18px; animation-delay: 0.2s; }
+    .status-wave span:nth-child(4) { height: 14px; animation-delay: 0.15s; }
+    .status-wave span:nth-child(5) { height: 8px;  animation-delay: 0.05s; }
+
+    @keyframes wave {
+      from { transform: scaleY(0.5); }
+      to   { transform: scaleY(1); }
+    }
+
+    /* ── Model Loading Progress ────────────────────────────────────────── */
+    .model-progress {
+      display: none;
+      padding: 8px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+      margin: -10px 0 10px;
+      flex-shrink: 0;
+    }
+    .model-progress.visible { display: block; }
+
+    .model-progress .progress-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+      padding: 2px 0;
+    }
+    .model-progress .progress-item .check {
+      width: 16px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .model-progress .progress-item.done  { color: var(--success); }
+    .model-progress .progress-item.active{ color: var(--warning); }
+    .model-progress .progress-item.pending{ color: var(--text-muted); }
+
+    /* ── Conversation Area ─────────────────────────────────────────────── */
+    .conversation {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      gap: 16px;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* ── Live2D Panel (desktop) ────────────────────────────────────────── */
+    .live2d-panel {
+      width: var(--live2d-size);
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      min-height: 280px;
+    }
+
+    #live2d-canvas {
+      width: 100%;
+      height: 220px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #live2d-canvas canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .live2d-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-top: 8px;
+    }
+
+    .live2d-status-tip {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* ── Messages Panel ────────────────────────────────────────────────── */
+    .messages-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+      padding-right: 4px;
+      min-height: 0;
+      position: relative;
+      z-index: 1;
+      scroll-behavior: smooth;
+    }
+
+    .messages-panel:empty {
+      justify-content: center;
+      align-items: center;
+      display: flex;
+    }
+
+    .messages-panel:empty::after {
+      content: '唤醒词激活后开始对话…';
+      color: var(--text-muted);
+      font-size: 14px;
+      text-align: center;
+      max-width: 280px;
+      line-height: 1.6;
+    }
+
+    /* ── Message Bubbles ──────────────────────────────────────────────── */
+    .msg {
+      display: flex;
+      gap: 10px;
+      animation: msgIn 0.3s ease;
+    }
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg.user { flex-direction: row-reverse; }
+
+    .msg-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+    .msg.user .msg-avatar        { background: var(--accent); }
+    .msg.assistant .msg-avatar   { background: var(--thinking); }
+    .msg.error .msg-avatar       { background: var(--danger); }
+
+    .msg-bubble {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user .msg-bubble {
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.assistant .msg-bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+    .msg.error .msg-bubble {
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      color: #fca5a5;
+    }
+
+    .msg-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+      display: block;
+    }
+    .msg.user .msg-label { text-align: right; }
+
+    /* ── Thinking Indicator ────────────────────────────────────────────── */
+    .thinking {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .thinking-dots {
+      display: flex;
+      gap: 4px;
+    }
+    .thinking-dots span {
+      width: 6px;
+      height: 6px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      animation: dotPulse 1.4s ease-in-out infinite;
+    }
+    .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dotPulse {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40%           { opacity: 1;   transform: scale(1); }
+    }
+
+    /* ── Controls ──────────────────────────────────────────────────────── */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      padding-bottom: max(14px, env(safe-area-inset-bottom));
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .controls select,
+    .controls input[type="number"] {
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color var(--transition);
+      touch-action: manipulation;
+    }
+    .controls select:focus,
+    .controls input[type="number"]:focus {
+      border-color: var(--accent);
+    }
+    .controls select {
+      min-width: 130px;
+      cursor: pointer;
+    }
+    .controls select option {
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .controls label {
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .controls input[type="number"] { width: 56px; }
+
+    .btn {
+      padding: 10px 20px;
+      min-height: 44px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background var(--transition), transform 0.1s;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      touch-action: manipulation;
+      user-select: none;
+    }
+    .btn:active:not(:disabled) { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+    .btn-danger:hover:not(:disabled) { background: #dc2626; }
+
+    .controls .spacer { flex: 1; }
+
+    /* ── Scrollbar ─────────────────────────────────────────────────────── */
+    .messages-panel::-webkit-scrollbar { width: 4px; }
+    .messages-panel::-webkit-scrollbar-track { background: transparent; }
+    .messages-panel::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+    .messages-panel::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ── Mobile (≤ 768px) ──────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .live2d-panel {
+        width: 170px;
+        min-height: 220px;
+      }
+      #live2d-canvas { height: 170px; }
+      .msg-bubble { max-width: 90%; }
+    }
+
+    /* ── Mobile (≤ 600px) ──────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      body { padding: 8px; }
+      .app { min-height: calc(100dvh - 16px); }
+
+      .brand-text .subtitle { display: none; }
+      .brand-text h1 { font-size: 16px; }
+
+      .conversation {
+        flex-direction: column;
+        position: relative;
+      }
+
+      /* Live2D as semi-transparent background decoration */
+      .live2d-panel {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 180px;
+        min-height: 0;
+        height: 200px;
+        background: none;
+        border: none;
+        opacity: 0.13;
+        pointer-events: none;
+        z-index: 0;
+        padding: 0;
+      }
+
+      .live2d-name,
+      .live2d-status-tip { display: none; }
+
+      #live2d-canvas {
+        height: 200px;
+        width: 100%;
+      }
+
+      .messages-panel {
+        z-index: 1;
+        padding-top: 8px;
+      }
+
+      .controls select { width: 100%; }
+      .controls .spacer { display: none; }
+      .btn { flex: 1; justify-content: center; }
+
+      .status-wave { display: none; }
+      .status-text { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo">🤖</div>
+        <div class="brand-text">
+          <h1>Shizuo Agent</h1>
+          <div class="subtitle">AI 语音助手</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a href="config.html" class="icon-btn" title="配置" target="_blank">⚙</a>
+        <button class="icon-btn" id="clearChatBtn" title="清空对话">🗑</button>
+      </div>
+    </header>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <div class="status-indicator idle" id="statusIndicator"></div>
+      <span class="status-text" id="statusText">就绪 — 点击「开始监听」或按 Ctrl+Enter 启动</span>
+      <div class="status-wave" id="statusWave" style="display:none">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+
+    <!-- Model Loading Progress -->
+    <div class="model-progress" id="modelProgress">
+      <div class="progress-item pending" id="mpWakeWord">
+        <span class="check">○</span> 准备唤醒词模型…
+      </div>
+      <div class="progress-item pending" id="mpLive2D">
+        <span class="check">○</span> 加载 Live2D 角色…
+      </div>
+    </div>
+
+    <!-- Conversation Area -->
+    <div class="conversation">
+      <div class="live2d-panel">
+        <div id="live2d-canvas"></div>
+        <div class="live2d-name" id="live2dName">Shizuo</div>
+        <div class="live2d-status-tip" id="live2dStatusTip">● 就绪</div>
+      </div>
+      <div class="messages-panel" id="messagesPanel"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <label>
+        唤醒词
+        <select id="wakeWordSelect">
+          <option value="alexa">Alexa</option>
+          <option value="hey jarvis">Hey Jarvis</option>
+          <option value="hey mycroft">Hey Mycroft</option>
+          <option value="hey rhasspy">Hey Rhasspy</option>
+          <option value="weather">Weather</option>
+          <option value="timer">Timer</option>
+        </select>
+      </label>
+      <label>
+        超时
+        <input type="number" id="silenceTimeout" value="2000" min="500" max="10000" step="100" />
+        <span style="font-size:11px;color:var(--text-muted)">ms</span>
+      </label>
+      <div class="spacer"></div>
+      <button class="btn btn-primary" id="startBtn">🎤 开始监听</button>
+      <button class="btn btn-danger"  id="stopBtn"  disabled>⏹ 停止</button>
+    </div>
+  </div>
+
+  <script type="module">
+    // ── Imports ──────────────────────────────────────────────────────────
+    import { loadOml2d } from 'oh-my-live2d';
+    import { voiceActivate } from './src/wakeword.js';
+    import agent from './src/agent.js';
+
+    // ── DOM refs ─────────────────────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+
+    const messagesPanel    = $('messagesPanel');
+    const startBtn         = $('startBtn');
+    const stopBtn          = $('stopBtn');
+    const clearChatBtn     = $('clearChatBtn');
+    const wakeWordSelect   = $('wakeWordSelect');
+    const silenceTimeout   = $('silenceTimeout');
+    const statusIndicator  = $('statusIndicator');
+    const statusText       = $('statusText');
+    const statusWave       = $('statusWave');
+    const modelProgress    = $('modelProgress');
+    const mpWakeWord       = $('mpWakeWord');
+    const mpLive2D         = $('mpLive2D');
+    const live2dCanvas     = $('live2d-canvas');
+    const live2dNameEl     = $('live2dName');
+    const live2dStatusTip  = $('live2dStatusTip');
+
+    // ── Live2D Model Sources ─────────────────────────────────────────────
+    const MODEL_SOURCES = {
+      shiori: {
+        name: '柊栞里 (Shiori)',
+        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/SHIORI/Shiori.model.json',
+      },
+      hiyori: {
+        name: '日依 (Hiyori)',
+        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Hiyori/Hiyori.model3.json',
+      },
+      haru: {
+        name: '春 (Haru)',
+        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Haru/Haru.model3.json',
+      },
+      epsilon: {
+        name: '艾普西隆 (Epsilon)',
+        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Epsilon/Epsilon.model3.json',
+      },
+      mao: {
+        name: '小萌 (Mao)',
+        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Mao/model.json',
+      },
+    };
+
+    // ── State ────────────────────────────────────────────────────────────
+    const THREAD_ID = 'shizuo-thread-main';
+    let currentStatus = 'idle';
+    let isRunning = false;
+    let abortController = null;
+    let oml2dInstance = null;
+    let live2dReady = false;
+
+    // ── Status Helpers ───────────────────────────────────────────────────
+    function setStatus(status, text) {
+      currentStatus = status;
+      statusIndicator.className = `status-indicator ${status}`;
+      statusText.textContent = text;
+      statusWave.style.display = (status === 'recording' || status === 'listening') ? '' : 'none';
+
+      if (status === 'loading') {
+        modelProgress.classList.add('visible');
+      } else {
+        modelProgress.classList.remove('visible');
+      }
+
+      // Sync Live2D status tip
+      if (live2dReady) {
+        const tipMap = {
+          idle: '● 就绪',
+          loading: '◌ 加载中…',
+          listening: '● 聆听中…',
+          recording: '● 录音中…',
+          processing: '◌ 处理中…',
+          thinking: '◌ 思考中…',
+        };
+        live2dStatusTip.textContent = tipMap[status] || '● 就绪';
+      }
+    }
+
+    function markProgress(id, state) {
+      const el = $('mp' + id);
+      if (!el) return;
+      const icons = { pending: '○', active: '◌', done: '✓' };
+      el.className = `progress-item ${state}`;
+      el.querySelector('.check').textContent = icons[state] || '○';
+    }
+
+    // ── Message Helpers ──────────────────────────────────────────────────
+    function scrollToBottom() {
+      messagesPanel.scrollTop = messagesPanel.scrollHeight;
+    }
+
+    function addMessage(role, content) {
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      const avatarMap = { user: '👤', assistant: '🤖', error: '⚠️' };
+
+      div.innerHTML = `
+        <div class="msg-avatar">${avatarMap[role] || '?'}</div>
+        <div>
+          <span class="msg-label">${role === 'user' ? '你' : role === 'assistant' ? live2dNameEl.textContent : '错误'}</span>
+          <div class="msg-bubble">${escapeHtml(content)}</div>
+        </div>
+      `;
+      messagesPanel.appendChild(div);
+      scrollToBottom();
+      return div;
+    }
+
+    function addThinking() {
+      const div = document.createElement('div');
+      div.className = 'msg assistant';
+      div.id = 'thinkingIndicator';
+      div.innerHTML = `
+        <div class="msg-avatar">🤖</div>
+        <div>
+          <span class="msg-label">${live2dNameEl.textContent}</span>
+          <div class="thinking">
+            <span class="thinking-dots">
+              <span></span><span></span><span></span>
+            </span>
+            <span style="font-size:12px;color:var(--text-dim)">思考中…</span>
+          </div>
+        </div>
+      `;
+      messagesPanel.appendChild(div);
+      scrollToBottom();
+    }
+
+    function removeThinking() {
+      const el = document.getElementById('thinkingIndicator');
+      if (el) el.remove();
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    // ── Check Config ─────────────────────────────────────────────────────
+    function checkConfig() {
+      const missing = [];
+      if (!localStorage.getItem('OPENAI_API_KEY')) missing.push('OPENAI_API_KEY');
+      if (!localStorage.getItem('MEM0_API_KEY'))  missing.push('MEM0_API_KEY');
+      if (!localStorage.getItem('MIMO_API_KEY'))  missing.push('MIMO_API_KEY');
+      if (missing.length > 0) {
+        addMessage('error', `缺少 API Key 配置：${missing.join('、')}。请先前往 配置页面 设置。`);
+        setStatus('idle', '配置不完整 — 请先设置 API Key');
+        return false;
+      }
+      return true;
+    }
+
+    // ── Initialize Live2D ────────────────────────────────────────────────
+    async function initLive2D() {
+      const modelKey = localStorage.getItem('LIVE2D_MODEL') || 'shiori';
+      const charName = localStorage.getItem('LIVE2D_NAME') || 'Shizuo';
+      const source = MODEL_SOURCES[modelKey] || MODEL_SOURCES.shiori;
+
+      live2dNameEl.textContent = charName;
+
+      markProgress('Live2D', 'active');
+
+      try {
+        oml2dInstance = await loadOml2d({
+          parentElement: live2dCanvas,
+          dockedPosition: 'left',
+          models: [{
+            name: modelKey,
+            path: source.path,
+            scale: 0.15,
+            stageStyle: {
+              width: '100%',
+              height: '100%',
+              background: 'transparent',
+              overflow: 'hidden',
+            },
+            motionPreloadStrategy: 'IDLE',
+          }],
+          tips: false,
+          statusBar: false,
+          menus: false,
+          sayHello: false,
+          transitionTime: 0,
+        });
+
+        live2dReady = true;
+        markProgress('Live2D', 'done');
+      } catch (err) {
+        console.warn('Live2D 加载失败:', err);
+        markProgress('Live2D', 'pending');
+        live2dReady = false;
+
+        // Show fallback avatar in Live2D panel
+        live2dCanvas.innerHTML = `
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;gap:4px;">
+            <span style="font-size:40px">🤖</span>
+            <span>角色加载失败</span>
+          </div>
+        `;
+      }
+    }
+
+    // ── Main Voice Loop ──────────────────────────────────────────────────
+    async function startVoiceLoop() {
+      if (isRunning) return;
+      if (!checkConfig()) return;
+
+      isRunning = true;
+      abortController = new AbortController();
+      const signal = abortController.signal;
+
+      const wakeWord = wakeWordSelect.value;
+      const timeout  = parseInt(silenceTimeout.value, 10) || 2000;
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      wakeWordSelect.disabled = true;
+      silenceTimeout.disabled = true;
+
+      markProgress('WakeWord', 'active');
+      setStatus('loading', '正在加载唤醒词模型…');
+
+      try {
+        const asrResult = await Promise.race([
+          voiceActivate(wakeWord, timeout),
+          new Promise((_, reject) => {
+            signal.addEventListener('abort', () => {
+              reject(new DOMException('用户停止', 'AbortError'));
+            });
+          }),
+        ]);
+
+        if (signal.aborted) return;
+
+        markProgress('WakeWord', 'done');
+
+        setStatus('processing', '语音识别完成，正在解析…');
+
+        let transcript = '';
+        try {
+          const parsed = typeof asrResult === 'string' ? JSON.parse(asrResult) : asrResult;
+          transcript = parsed.choices?.[0]?.message?.content || '';
+        } catch {
+          transcript = typeof asrResult === 'string' ? asrResult : '';
+        }
+
+        if (!transcript.trim()) {
+          addMessage('error', '未检测到语音内容，请重试。');
+          setStatus('idle', '未检测到语音内容');
+          finishLoop();
+          return;
+        }
+
+        addMessage('user', transcript);
+        setStatus('thinking', 'AI 正在思考…');
+        addThinking();
+
+        let aiContent = '';
+        try {
+          const response = await agent.invoke(
+            { messages: [{ role: 'user', content: transcript }] },
+            { configurable: { threadId: THREAD_ID } },
+          );
+          aiContent = response.messages?.[response.messages.length - 1]?.content || '抱歉，我没有理解您的意思。';
+        } catch (err) {
+          aiContent = `请求失败：${err.message}`;
+        }
+
+        removeThinking();
+        addMessage('assistant', aiContent);
+        setStatus('idle', '就绪 — 唤醒词激活后自动开始下一轮对话');
+
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          addMessage('assistant', '⏸ 已停止监听。');
+          setStatus('idle', '已停止');
+        } else {
+          addMessage('error', `❌ ${err.message}`);
+          setStatus('idle', '发生错误');
+        }
+      } finally {
+        if (!signal.aborted) {
+          finishLoop();
+        }
+      }
+    }
+
+    function finishLoop() {
+      isRunning = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      wakeWordSelect.disabled = false;
+      silenceTimeout.disabled = false;
+    }
+
+    function stopVoiceLoop() {
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
+      finishLoop();
+      setStatus('idle', '已停止');
+    }
+
+    // ── Clear Chat ───────────────────────────────────────────────────────
+    function clearChat() {
+      messagesPanel.innerHTML = '';
+    }
+
+    // ── Keyboard Shortcut ────────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (isRunning) {
+          stopVoiceLoop();
+        } else {
+          startVoiceLoop();
+        }
+      }
+    });
+
+    // ── Event Binding ────────────────────────────────────────────────────
+    startBtn.addEventListener('click', startVoiceLoop);
+    stopBtn.addEventListener('click', stopVoiceLoop);
+    clearChatBtn.addEventListener('click', clearChat);
+
+    // ── Init ─────────────────────────────────────────────────────────────
+    // Load character name
+    const savedName = localStorage.getItem('LIVE2D_NAME') || 'Shizuo';
+    live2dNameEl.textContent = savedName;
+
+    // Initialize Live2D (fire-and-forget, don't block UI)
+    initLive2D();
+
+    setStatus('idle', '就绪 — 点击「开始监听」或按 Ctrl+Enter 启动');
+  </script>
+</body>
+</html>

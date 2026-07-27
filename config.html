@@ -120,6 +120,31 @@
       color: #475569;
     }
 
+    .field select {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+      cursor: pointer;
+      appearance: auto;
+    }
+
+    .field select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .field select option {
+      background: var(--bg);
+      color: var(--text);
+    }
+
     .field .hint {
       font-size: 12px;
       color: var(--text-dim);
@@ -290,6 +315,33 @@
       </div>
     </div>
 
+    <!-- Live2D 模型配置 -->
+    <div class="card">
+      <div class="card-title">🎨 Live2D 角色</div>
+      <div class="field">
+        <label>模型</label>
+        <select id="live2dModel">
+          <option value="shiori">柊栞里 (Shiori) — 经典日系</option>
+          <option value="hiyori">日依 (Hiyori) — 轻快少女</option>
+          <option value="haru">春 (Haru) — 温柔女性</option>
+          <option value="epsilon">艾普西隆 (Epsilon) — 时尚短发</option>
+          <option value="mao">小萌 (Mao) — 中式萌系</option>
+        </select>
+        <div class="hint">选择主界面上 AI 助手的 Live2D 形象</div>
+      </div>
+      <div class="divider"></div>
+      <div class="field">
+        <label>角色名称</label>
+        <input
+          type="text"
+          id="live2dName"
+          placeholder="Shizuo"
+          autocomplete="off"
+        />
+        <div class="hint">可选，显示在 Live2D 角色下方的名称，默认为 <code>Shizuo</code></div>
+      </div>
+    </div>
+
     <!-- 操作按钮 -->
     <div class="btn-group">
       <button class="btn btn-primary" id="saveBtn">💾 保存配置</button>
@@ -308,6 +360,8 @@
     const agentIdInput    = $('mem0AgentId');
     const userIdInput     = $('mem0UserId');
     const mimoInput       = $('mimoApiKey');
+    const live2dModelSelect = $('live2dModel');
+    const live2dNameInput = $('live2dName');
     const openaiStatus    = $('openaiStatus');
     const mem0Status      = $('mem0Status');
     const mimoStatus      = $('mimoStatus');
@@ -332,6 +386,8 @@
       agentIdInput.value  = localStorage.getItem('MEM0_AGENT_ID') || '';
       userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
       mimoInput.value     = localStorage.getItem('MIMO_API_KEY') || '';
+      live2dModelSelect.value = localStorage.getItem('LIVE2D_MODEL') || 'shiori';
+      live2dNameInput.value   = localStorage.getItem('LIVE2D_NAME') || '';
       updateStatus();
     }
 
@@ -389,6 +445,8 @@
       localStorage.setItem('MEM0_AGENT_ID', agentId);
       localStorage.setItem('MEM0_USER_ID', userId);
       localStorage.setItem('MIMO_API_KEY', mimoKey);
+      localStorage.setItem('LIVE2D_MODEL', live2dModelSelect.value);
+      localStorage.setItem('LIVE2D_NAME', live2dNameInput.value.trim() || 'Shizuo');
 
       updateStatus();
       showToast('✅ 配置已保存到 localStorage', 'success');
@@ -401,12 +459,16 @@
       localStorage.removeItem('MEM0_AGENT_ID');
       localStorage.removeItem('MEM0_USER_ID');
       localStorage.removeItem('MIMO_API_KEY');
+      localStorage.removeItem('LIVE2D_MODEL');
+      localStorage.removeItem('LIVE2D_NAME');
 
       openaiInput.value   = '';
       mem0Input.value     = '';
       agentIdInput.value  = '';
       userIdInput.value   = '';
       mimoInput.value     = '';
+      live2dModelSelect.value = 'shiori';
+      live2dNameInput.value   = '';
 
       updateStatus();
       showToast('🗑 配置已清空', 'info');
