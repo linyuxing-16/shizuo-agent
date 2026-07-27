@@ -247,13 +247,15 @@
       top: 0;
       align-self: flex-start;
       min-height: 280px;
+      /* 裁剪溢出元素，阻止点击穿透到下方控件 */
+      overflow: hidden;
+      contain: paint;
     }
 
     #live2d-canvas {
       width: 100%;
       height: 220px;
       position: relative;
-      overflow: hidden;
     }
 
     #live2d-canvas canvas {
@@ -527,6 +529,11 @@
       #live2d-canvas {
         height: 200px;
         width: 100%;
+        contain: layout style;
+      }
+
+      #live2d-canvas canvas {
+        pointer-events: none !important;
       }
 
       .messages-panel {
@@ -797,7 +804,6 @@
       try {
         oml2dInstance = await loadOml2d({
           parentElement: live2dCanvas,
-          dockedPosition: 'left',
           models: [{
             name: modelKey,
             path: source.path,
@@ -810,7 +816,10 @@
             },
             motionPreloadStrategy: 'IDLE',
           }],
-          tips: false,
+          tips: {
+            idleTips: [],
+            messageDuration: 0,
+          },
           statusBar: false,
           menus: false,
           sayHello: false,
