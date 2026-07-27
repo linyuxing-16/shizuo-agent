@@ -10,7 +10,7 @@
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| Agent | `src/agent.js` | LangChain agent + OpenAI GPT-4o + Mem0 记忆中间件 |
+| Agent | `src/agent.js` | LangChain agent + DeepSeek Chat + Mem0 记忆中间件 |
 | ASR | `src/asr.js` | 调用 MIMO API（OpenAI 兼容）进行语音转文字，支持流式/非流式 |
 | 记忆 | `src/memory.js` | Mem0 长期记忆：`addMemories`/`searchMemories` + LangChain 中间件 + tool |
 | 唤醒词 | `src/wakeword.js` | openWakeWord ONNX 模型实时检测 → VAD 录音 → 调 ASR |
@@ -32,7 +32,7 @@ npm run test:watch # vitest（监听模式）
 - **语言**：注释和文档使用中文；代码标识符使用英文
 - **模块**：ES Modules（`"type": "module"`），使用 `import`/`export`
 - **类型注释**：所有导出函数使用 JSDoc（含 `@param`、`@returns`、`@throws`、`@example`）
-- **配置存储**：所有 API Key 通过 `localStorage` 存取（键名：`OPENAI_API_KEY`、`MEM0_API_KEY`、`MEM0_AGENT_ID`、`MEM0_USER_ID`、`MIMO_API_KEY`）
+- **配置存储**：所有 API Key 通过 `localStorage` 存取（键名：`DEEPSEEK_API_KEY`、`MEM0_API_KEY`、`MEM0_AGENT_ID`、`MEM0_USER_ID`、`MIMO_API_KEY`）
 - **测试框架**：Vitest，对浏览器 API 使用 `vi.stubGlobal` + `vi.mock` 进行模拟
 - **测试模式**：测试中 `wakeword.js` 的 vi.mock 使用**可变引用模式**（`_ortImpl`、`_asrImpl`）解决变量捕获问题
 
@@ -40,7 +40,7 @@ npm run test:watch # vitest（监听模式）
 
 | 包 | 用途 |
 |----|------|
-| `langchain` / `@langchain/openai` | AI Agent 框架 |
+| `langchain` / `@langchain/deepseek` | AI Agent 框架 |
 | `openai` | MIMO ASR API 客户端（`dangerouslyAllowBrowser: true`） |
 | `mem0ai` | 长期记忆服务 |
 | `onnxruntime-web` | 唤醒词 ONNX 模型推理（WASM 后端） |

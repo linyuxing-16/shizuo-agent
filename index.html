@@ -780,7 +780,7 @@
     // ── Check Config ─────────────────────────────────────────────────────
     function checkConfig() {
       const missing = [];
-      if (!localStorage.getItem('OPENAI_API_KEY')) missing.push('OPENAI_API_KEY');
+      if (!localStorage.getItem('DEEPSEEK_API_KEY')) missing.push('DEEPSEEK_API_KEY');
       if (!localStorage.getItem('MEM0_API_KEY'))  missing.push('MEM0_API_KEY');
       if (!localStorage.getItem('MIMO_API_KEY'))  missing.push('MIMO_API_KEY');
       if (missing.length > 0) {

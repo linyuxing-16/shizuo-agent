@@ -1,12 +1,12 @@
 import { createAgent } from 'langchain';
-import { ChatOpenAI } from '@langchain/openai';
+import { ChatDeepSeek } from '@langchain/deepseek';
 import { MemorySaver } from '@langchain/langgraph-checkpoint';
 import { memoryMiddleware, searchMemoryTool } from './memory.js';
 
 /**
  * AI 助手 agent，集成记忆系统
  *
- * - 使用 OpenAI GPT-4o 作为底层模型
+ * - 使用 DeepSeek Chat 作为底层模型
  * - 通过 searchMemoryTool 检索历史记忆
  * - 通过 memoryMiddleware 自动将对话保存到长期记忆
  * - 通过 MemorySaver checkpointer 实现短期对话记忆
@@ -21,9 +21,9 @@ import { memoryMiddleware, searchMemoryTool } from './memory.js';
  * );
  */
 
-const model = new ChatOpenAI({
-  model: 'gpt-4o',
-  apiKey: localStorage.getItem('OPENAI_API_KEY'),
+const model = new ChatDeepSeek({
+  model: 'deepseek-chat',
+  apiKey: localStorage.getItem('DEEPSEEK_API_KEY'),
 });
 
 const checkpointer = new MemorySaver();

@@ -248,18 +248,18 @@
     </h1>
     <p class="subtitle">管理 localStorage 中的 API Key 和 Agent 配置</p>
 
-    <!-- OpenAI 配置 -->
+    <!-- DeepSeek 配置 -->
     <div class="card">
-      <div class="card-title">🔑 OpenAI</div>
+      <div class="card-title">🔑 DeepSeek</div>
       <div class="field">
         <label>API Key <span class="required">*</span></label>
         <input
           type="password"
-          id="openaiApiKey"
+          id="deepseekApiKey"
           placeholder="sk-..."
           autocomplete="off"
         />
-        <div class="status" id="openaiStatus"></div>
+        <div class="status" id="deepseekStatus"></div>
       </div>
     </div>
 
@@ -357,14 +357,14 @@
   <script>
     // ── DOM refs ──────────────────────────────────────────────────────────
     const $ = (id) => document.getElementById(id);
-    const openaiInput     = $('openaiApiKey');
+    const deepseekInput    = $('deepseekApiKey');
     const mem0Input       = $('mem0ApiKey');
     const agentIdInput    = $('mem0AgentId');
     const userIdInput     = $('mem0UserId');
     const mimoInput       = $('mimoApiKey');
     const live2dModelSelect = $('live2dModel');
     const live2dNameInput = $('live2dName');
-    const openaiStatus    = $('openaiStatus');
+    const deepseekStatus  = $('deepseekStatus');
     const mem0Status      = $('mem0Status');
     const mimoStatus      = $('mimoStatus');
     const saveBtn         = $('saveBtn');
@@ -383,7 +383,7 @@
 
     // ── 加载已保存的值 ──────────────────────────────────────────────────
     function loadConfig() {
-      openaiInput.value   = localStorage.getItem('OPENAI_API_KEY') || '';
+      deepseekInput.value = localStorage.getItem('DEEPSEEK_API_KEY') || '';
       mem0Input.value     = localStorage.getItem('MEM0_API_KEY') || '';
       agentIdInput.value  = localStorage.getItem('MEM0_AGENT_ID') || '';
       userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
@@ -395,10 +395,10 @@
 
     // ── 状态指示 ─────────────────────────────────────────────────────────
     function updateStatus() {
-      openaiStatus.textContent = openaiInput.value
-        ? `✓ 已配置 (${maskKey(openaiInput.value)})`
+      deepseekStatus.textContent = deepseekInput.value
+        ? `✓ 已配置 (${maskKey(deepseekInput.value)})`
         : '○ 未配置';
-      openaiStatus.className = `status ${openaiInput.value ? 'saved' : 'empty'}`;
+      deepseekStatus.className = `status ${deepseekInput.value ? 'saved' : 'empty'}`;
 
       mem0Status.textContent = mem0Input.value
         ? `✓ 已配置 (${maskKey(mem0Input.value)})`
@@ -418,15 +418,15 @@
 
     // ── 保存 ─────────────────────────────────────────────────────────────
     function saveConfig() {
-      const openaiKey = openaiInput.value.trim();
+      const deepseekKey = deepseekInput.value.trim();
       const mem0Key   = mem0Input.value.trim();
       const agentId   = agentIdInput.value.trim() || 'default-agent';
       const userId    = userIdInput.value.trim() || 'default-user';
       const mimoKey   = mimoInput.value.trim();
 
-      if (!openaiKey) {
-        showToast('请填写 OpenAI API Key', 'error');
-        openaiInput.focus();
+      if (!deepseekKey) {
+        showToast('请填写 DeepSeek API Key', 'error');
+        deepseekInput.focus();
         return;
       }
 
@@ -442,7 +442,7 @@
         return;
       }
 
-      localStorage.setItem('OPENAI_API_KEY', openaiKey);
+      localStorage.setItem('DEEPSEEK_API_KEY', deepseekKey);
       localStorage.setItem('MEM0_API_KEY', mem0Key);
       localStorage.setItem('MEM0_AGENT_ID', agentId);
       localStorage.setItem('MEM0_USER_ID', userId);
@@ -456,7 +456,7 @@
 
     // ── 清空 ─────────────────────────────────────────────────────────────
     function clearConfig() {
-      localStorage.removeItem('OPENAI_API_KEY');
+      localStorage.removeItem('DEEPSEEK_API_KEY');
       localStorage.removeItem('MEM0_API_KEY');
       localStorage.removeItem('MEM0_AGENT_ID');
       localStorage.removeItem('MEM0_USER_ID');
@@ -464,7 +464,7 @@
       localStorage.removeItem('LIVE2D_MODEL');
       localStorage.removeItem('LIVE2D_NAME');
 
-      openaiInput.value   = '';
+      deepseekInput.value = '';
       mem0Input.value     = '';
       agentIdInput.value  = '';
       userIdInput.value   = '';
@@ -477,7 +477,7 @@
     }
 
     // ── 实时输入监听 ────────────────────────────────────────────────────
-    openaiInput.addEventListener('input', updateStatus);
+    deepseekInput.addEventListener('input', updateStatus);
     mem0Input.addEventListener('input', updateStatus);
     mimoInput.addEventListener('input', updateStatus);
 
