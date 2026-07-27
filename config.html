@@ -321,11 +321,13 @@
       <div class="field">
         <label>模型</label>
         <select id="live2dModel">
-          <option value="shiori">柊栞里 (Shiori) — 经典日系</option>
           <option value="hiyori">日依 (Hiyori) — 轻快少女</option>
           <option value="haru">春 (Haru) — 温柔女性</option>
-          <option value="epsilon">艾普西隆 (Epsilon) — 时尚短发</option>
           <option value="mao">小萌 (Mao) — 中式萌系</option>
+          <option value="mark">马克 (Mark) — 潮流男生</option>
+          <option value="natori">名取 (Natori) — 典雅女性</option>
+          <option value="wanko">汪口 (Wanko) — 可爱风格</option>
+          <option value="rice">小饭 (Rice) — 治愈系</option>
         </select>
         <div class="hint">选择主界面上 AI 助手的 Live2D 形象</div>
       </div>
@@ -386,7 +388,7 @@
       agentIdInput.value  = localStorage.getItem('MEM0_AGENT_ID') || '';
       userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
       mimoInput.value     = localStorage.getItem('MIMO_API_KEY') || '';
-      live2dModelSelect.value = localStorage.getItem('LIVE2D_MODEL') || 'shiori';
+      live2dModelSelect.value = localStorage.getItem('LIVE2D_MODEL') || 'hiyori';
       live2dNameInput.value   = localStorage.getItem('LIVE2D_NAME') || '';
       updateStatus();
     }
@@ -467,7 +469,7 @@
       agentIdInput.value  = '';
       userIdInput.value   = '';
       mimoInput.value     = '';
-      live2dModelSelect.value = 'shiori';
+      live2dModelSelect.value = 'hiyori';
       live2dNameInput.value   = '';
 
       updateStatus();

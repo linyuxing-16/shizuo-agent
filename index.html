@@ -640,26 +640,37 @@
     const live2dStatusTip  = $('live2dStatusTip');
 
     // ── Live2D Model Sources ─────────────────────────────────────────────
+    // 模型文件来自 Live2D 官方 CubismWebSamples 仓库
+    const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Live2D/CubismWebSamples@develop/Samples/Resources';
+
     const MODEL_SOURCES = {
-      shiori: {
-        name: '柊栞里 (Shiori)',
-        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/SHIORI/Shiori.model.json',
-      },
       hiyori: {
         name: '日依 (Hiyori)',
-        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Hiyori/Hiyori.model3.json',
+        path: `${CDN_BASE}/Hiyori/Hiyori.model3.json`,
       },
       haru: {
         name: '春 (Haru)',
-        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Haru/Haru.model3.json',
-      },
-      epsilon: {
-        name: '艾普西隆 (Epsilon)',
-        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Epsilon/Epsilon.model3.json',
+        path: `${CDN_BASE}/Haru/Haru.model3.json`,
       },
       mao: {
         name: '小萌 (Mao)',
-        path: 'https://cdn.jsdelivr.net/gh/Eikanya/Live2d-model@master/Live2D/Mao/model.json',
+        path: `${CDN_BASE}/Mao/Mao.model3.json`,
+      },
+      mark: {
+        name: '马克 (Mark)',
+        path: `${CDN_BASE}/Mark/Mark.model3.json`,
+      },
+      natori: {
+        name: '名取 (Natori)',
+        path: `${CDN_BASE}/Natori/Natori.model3.json`,
+      },
+      wanko: {
+        name: '汪口 (Wanko)',
+        path: `${CDN_BASE}/Wanko/Wanko.model3.json`,
+      },
+      rice: {
+        name: '小饭 (Rice)',
+        path: `${CDN_BASE}/Rice/Rice.model3.json`,
       },
     };
 
@@ -775,9 +786,9 @@
 
     // ── Initialize Live2D ────────────────────────────────────────────────
     async function initLive2D() {
-      const modelKey = localStorage.getItem('LIVE2D_MODEL') || 'shiori';
+      const modelKey = localStorage.getItem('LIVE2D_MODEL') || 'hiyori';
       const charName = localStorage.getItem('LIVE2D_NAME') || 'Shizuo';
-      const source = MODEL_SOURCES[modelKey] || MODEL_SOURCES.shiori;
+      const source = MODEL_SOURCES[modelKey] || MODEL_SOURCES.hiyori;
 
       live2dNameEl.textContent = charName;
 
