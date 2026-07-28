@@ -315,6 +315,32 @@
       </div>
     </div>
 
+    <!-- MIMO TTS 语音合成配置 -->
+    <div class="card">
+      <div class="card-title">🔊 MIMO 语音合成 (TTS)</div>
+      <div class="field">
+        <label>方言</label>
+        <select id="ttsDialect">
+          <option value="闽南语">闽南语</option>
+          <option value="东北话">东北话</option>
+          <option value="四川话">四川话</option>
+          <option value="河南话">河南话</option>
+          <option value="粤语">粤语</option>
+          <option value="">无（标准普通话）</option>
+        </select>
+        <div class="hint">选择 AI 回复时使用的方言口音</div>
+      </div>
+      <div class="divider"></div>
+      <div class="field">
+        <label>音色</label>
+        <select id="ttsVoice">
+          <option value="Chloe">Chloe — 清亮女声（推荐）</option>
+          <option value="mimo_default">mimo_default — 默认音色</option>
+        </select>
+        <div class="hint">选择语音合成的音色</div>
+      </div>
+    </div>
+
     <!-- Live2D 模型配置 -->
     <div class="card">
       <div class="card-title">🎨 Live2D 角色</div>
@@ -362,6 +388,8 @@
     const agentIdInput    = $('mem0AgentId');
     const userIdInput     = $('mem0UserId');
     const mimoInput       = $('mimoApiKey');
+    const ttsDialectSelect = $('ttsDialect');
+    const ttsVoiceSelect   = $('ttsVoice');
     const live2dModelSelect = $('live2dModel');
     const live2dNameInput = $('live2dName');
     const deepseekStatus  = $('deepseekStatus');
@@ -388,6 +416,8 @@
       agentIdInput.value  = localStorage.getItem('MEM0_AGENT_ID') || '';
       userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
       mimoInput.value     = localStorage.getItem('MIMO_API_KEY') || '';
+      ttsDialectSelect.value = localStorage.getItem('MIMO_TTS_DIALECT') || '闽南语';
+      ttsVoiceSelect.value   = localStorage.getItem('MIMO_TTS_VOICE') || 'Chloe';
       live2dModelSelect.value = localStorage.getItem('LIVE2D_MODEL') || 'hiyori';
       live2dNameInput.value   = localStorage.getItem('LIVE2D_NAME') || '';
       updateStatus();
@@ -447,6 +477,8 @@
       localStorage.setItem('MEM0_AGENT_ID', agentId);
       localStorage.setItem('MEM0_USER_ID', userId);
       localStorage.setItem('MIMO_API_KEY', mimoKey);
+      localStorage.setItem('MIMO_TTS_DIALECT', ttsDialectSelect.value);
+      localStorage.setItem('MIMO_TTS_VOICE', ttsVoiceSelect.value);
       localStorage.setItem('LIVE2D_MODEL', live2dModelSelect.value);
       localStorage.setItem('LIVE2D_NAME', live2dNameInput.value.trim() || 'Shizuo');
 
@@ -461,6 +493,8 @@
       localStorage.removeItem('MEM0_AGENT_ID');
       localStorage.removeItem('MEM0_USER_ID');
       localStorage.removeItem('MIMO_API_KEY');
+      localStorage.removeItem('MIMO_TTS_DIALECT');
+      localStorage.removeItem('MIMO_TTS_VOICE');
       localStorage.removeItem('LIVE2D_MODEL');
       localStorage.removeItem('LIVE2D_NAME');
 

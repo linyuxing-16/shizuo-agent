@@ -151,6 +151,7 @@
     .status-indicator.recording { background: var(--danger); box-shadow: 0 0 8px rgba(239,68,68,0.5); animation: pulse 0.6s ease-in-out infinite; }
     .status-indicator.processing{ background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); animation: pulse 0.8s ease-in-out infinite; }
     .status-indicator.thinking  { background: var(--thinking); box-shadow: 0 0 8px rgba(124,58,237,0.5); animation: pulse 0.9s ease-in-out infinite; }
+    .status-indicator.speaking  { background: #06b6d4; box-shadow: 0 0 8px rgba(6,182,212,0.5); animation: pulse 0.7s ease-in-out infinite; }
 
     @keyframes pulse {
       0%, 100% { opacity: 1; }
@@ -626,6 +627,8 @@
     import { loadOml2d } from 'oh-my-live2d';
     import { voiceActivate } from './src/wakeword.js';
     import agent, { streamAgent } from './src/agent.js';
+    import { streamTts } from './src/tts.js';
+    import { initAudioContext, playPcm16, stopPlayback } from './src/audioPlayer.js';
 
     // ── DOM refs ─────────────────────────────────────────────────────────
     const $ = (id) => document.getElementById(id);
@@ -711,6 +714,7 @@
           recording: '● 录音中…',
           processing: '◌ 处理中…',
           thinking: '◌ 思考中…',
+          speaking: '● 发音中…',
         };
         live2dStatusTip.textContent = tipMap[status] || '● 就绪';
       }
@@ -931,7 +935,24 @@
         }
 
         removeThinking();
-        setStatus('idle', '就绪 — 唤醒词激活后自动开始下一轮对话');
+
+        // ── TTS 语音合成 ────────────────────────────────────────────────
+        if (aiContent.trim() && !signal.aborted) {
+          setStatus('speaking', '正在合成闽南语语音…');
+          try {
+            initAudioContext();
+            for await (const audioChunk of streamTts(aiContent)) {
+              if (signal.aborted) break;
+              playPcm16(new Int16Array(audioChunk));
+            }
+          } catch (err) {
+            console.error('TTS 播放失败:', err);
+          }
+        }
+
+        if (!signal.aborted) {
+          setStatus('idle', '就绪 — 唤醒词激活后自动开始下一轮对话');
+        }
 
       } catch (err) {
         if (err.name === 'AbortError') {
@@ -957,6 +978,7 @@
     }
 
     function stopVoiceLoop() {
+      stopPlayback();
       if (abortController) {
         abortController.abort();
         abortController = null;
