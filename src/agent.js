@@ -1,4 +1,4 @@
-import { createAgent } from 'langchain';
+import { createAgent, summarizationMiddleware } from 'langchain';
 import { ChatDeepSeek } from '@langchain/deepseek';
 import { MemorySaver } from '@langchain/langgraph-checkpoint';
 import { memoryMiddleware, searchMemoryTool } from './memory.js';
@@ -10,6 +10,7 @@ import { memoryMiddleware, searchMemoryTool } from './memory.js';
  * - 通过 searchMemoryTool 检索历史记忆
  * - 通过 memoryMiddleware 自动将对话保存到长期记忆
  * - 通过 MemorySaver checkpointer 实现短期对话记忆
+ * - 通过 summarizationMiddleware 自动摘要历史消息，防止超出上下文窗口
  *
  * @example
  * import agent from './agent.js';
@@ -19,6 +20,9 @@ import { memoryMiddleware, searchMemoryTool } from './memory.js';
  *   { messages: [{ role: 'user', content: '你好，我叫小明' }] },
  *   { configurable: { threadId: 'thread-1' } },
  * );
+ *
+ * // agent 内部已配置 summarizationMiddleware，
+ * // 当消息 token 数达到 128000 时自动摘要历史消息，保留最近 20 条
  */
 
 const model = new ChatDeepSeek({
@@ -31,7 +35,14 @@ const checkpointer = new MemorySaver();
 const agent = createAgent({
   model,
   tools: [searchMemoryTool],
-  middleware: [memoryMiddleware],
+  middleware: [
+    summarizationMiddleware({
+      model,
+      trigger: { tokens: 128000 },
+      keep: { messages: 20 },
+    }),
+    memoryMiddleware,
+  ],
   checkpointer,
   systemPrompt:
     '你是一个智能 AI 助手，拥有长期记忆能力。' +
