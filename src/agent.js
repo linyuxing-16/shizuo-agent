@@ -60,14 +60,14 @@ export default agent;
  * 每次 yield 一个文本片段，调用方可以实时追加到 UI。
  *
  * @param {import('langchain').BaseMessage[]} messages - 输入消息列表
- * @param {object} config - 配置对象（需包含 configurable.threadId）
+ * @param {object} config - 配置对象（需包含 configurable.thread_id）
  * @yields {string} AI 回复的文本片段
  * @throws {Error} API 调用失败时抛出
  * @example
  * let full = '';
  * for await (const chunk of streamAgent(
  *   [{ role: 'user', content: '你好' }],
- *   { configurable: { threadId: 'thread-1' } },
+ *   { configurable: { thread_id: 'thread-1' } },
  * )) {
  *   full += chunk;
  *   console.log('收到片段:', chunk);
@@ -80,9 +80,13 @@ export async function* streamAgent(messages, config) {
   );
 
   for await (const event of stream) {
-    const [chunk, metadata] = event;
-    if (metadata?.node === 'agent' && chunk?.content) {
-      yield chunk.content;
+    // streamMode: 'messages' 的 event 格式为 [namespace, mode, payload]
+    // payload 为 [message, metadata]
+    const [, mode, payload] = event;
+    if (mode !== 'messages') continue;
+    const [message, metadata] = payload;
+    if (metadata?.node === 'agent' && message?.content) {
+      yield message.content;
     }
   }
 }
