@@ -920,7 +920,7 @@
         try {
           for await (const chunk of streamAgent(
             [{ role: 'user', content: transcript }],
-            { configurable: { thread_id: THREAD_ID } },
+            { configurable: { threadId: THREAD_ID } },
           )) {
             aiContent += chunk;
             bubbleEl.textContent = aiContent;

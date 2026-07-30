@@ -69,9 +69,7 @@ export const memoryMiddleware = createMiddleware({
   afterAgent: (state) => {
     const messages = toMem0Messages(state.messages);
     if (messages.length > 0) {
-      addMemories(messages).catch((err) => {
-        console.warn('记忆保存失败（非关键错误）:', err.message);
-      });
+      addMemories(messages);
     }
   },
 });
