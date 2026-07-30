@@ -1,6 +1,10 @@
 import * as ort from 'onnxruntime-web';
 import { asr } from './asr.js';
 
+// ── 配置 onnxruntime-web WASM 后端路径 ────────────────────────────────────
+// 指定 WASM 运行时文件的加载路径（由 Vite 构建时从 node_modules 复制到 public/wasm/）
+ort.env.wasm.wasmPaths = '/shizuo-agent/wasm/';
+
 // ── 支持的唤醒词列表（对应 openWakeWord v0.5.1 预训练模型） ──────────────
 
 /** @type {readonly string[]} */

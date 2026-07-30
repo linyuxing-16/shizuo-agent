@@ -60,6 +60,11 @@ vi.mock('onnxruntime-web', () => {
     },
     InferenceSession: { create },
     Tensor: MockTensor,
+    env: {
+      wasm: {
+        wasmPaths: undefined,
+      },
+    },
   };
 });
 
