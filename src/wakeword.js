@@ -18,7 +18,7 @@ const WAKE_WORDS_SET = new Set(WAKE_WORDS);
 
 // ── ONNX 模型 URL 映射 ──────────────────────────────────────────────────
 
-const MODEL_BASE = 'https://github.com/dscripka/openWakeWord/releases/download/v0.5.1';
+const MODEL_BASE = '/shizuo-agent/models/openWakeWord';
 
 /** @type {Record<string, string>} */
 const FEATURE_MODEL_URLS = {
