@@ -197,6 +197,24 @@ describe('voiceActivate 完整流程（ASR 周期检测）', () => {
     localStorage.setItem('MIMO_API_KEY', 'test-key');
   });
 
+  it('应将麦克风源连接到 ScriptProcessor（回归：修复输入恒为静音的问题）', async () => {
+    const promise = voiceActivate('hey jarvis', 100);
+
+    // voiceActivate 在 getUserMedia resolve 后同步完成 source/processor 创建与连接
+    await vi.waitFor(() => {
+      const context = MockAudioContext.mock.results[0]?.value;
+      const source = context?.createMediaStreamSource?.mock?.results?.[0]?.value;
+      const processor = context?.createScriptProcessor?.mock?.results?.[0]?.value;
+      expect(source?.connect).toHaveBeenCalledWith(processor);
+    });
+
+    // 未发送语音帧，promise 应保持 pending
+    let settled = false;
+    promise.finally(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+  }, 5000);
+
   it('检测到唤醒词后静音超时应返回含唤醒词的 ASR 结果', async () => {
     // 第一次调用为唤醒检测，用 deferred 精确控制完成时机
     let resolveDetection;

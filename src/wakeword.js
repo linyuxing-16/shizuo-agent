@@ -422,6 +422,7 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
   source = audioContext.createMediaStreamSource(micStream);
 
   processor = audioContext.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1);
+  source.connect(processor);
 
   processor.onaudioprocess = async (event) => {
     if (cleanedUp) return;
