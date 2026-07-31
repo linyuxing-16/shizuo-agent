@@ -18,12 +18,17 @@ const ROOT = join(__dirname, '..');
 const SRC_DIR = join(ROOT, 'node_modules', 'onnxruntime-web', 'dist');
 const DST_DIR = join(ROOT, 'public', 'wasm');
 
-// 需要复制的 WASM 文件模式
+// 需要复制的 WASM 运行时文件
+// onnxruntime-web v1.27+ 需要 .wasm 二进制文件及其对应的 .mjs JS 加载器模块
 const WASM_FILES = [
   'ort-wasm-simd-threaded.wasm',
+  'ort-wasm-simd-threaded.mjs',
   'ort-wasm-simd-threaded.asyncify.wasm',
+  'ort-wasm-simd-threaded.asyncify.mjs',
   'ort-wasm-simd-threaded.jsep.wasm',
+  'ort-wasm-simd-threaded.jsep.mjs',
   'ort-wasm-simd-threaded.jspi.wasm',
+  'ort-wasm-simd-threaded.jspi.mjs',
 ];
 
 // 确保目标目录存在

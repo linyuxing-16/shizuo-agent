@@ -2,8 +2,11 @@ import * as ort from 'onnxruntime-web';
 import { asr } from './asr.js';
 
 // ── 配置 onnxruntime-web WASM 后端路径 ────────────────────────────────────
-// 指定 WASM 运行时文件的加载路径（由 Vite 构建时从 node_modules 复制到 public/wasm/）
-ort.env.wasm.wasmPaths = '/shizuo-agent/wasm/';
+// 使用对象形式仅覆盖 .wasm 文件 URL，保留 onnxruntime-web 的内嵌 WASM 模块。
+// 字符串形式会禁用内嵌模块并触发动态 import()，导致 Vite 拦截错误。
+ort.env.wasm.wasmPaths = {
+  wasm: '/shizuo-agent/wasm/ort-wasm-simd-threaded.jsep.wasm',
+};
 
 // ── 支持的唤醒词列表（对应 openWakeWord v0.5.1 预训练模型） ──────────────
 
@@ -206,8 +209,9 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
   const wwOutputName = wwSession.outputNames[0];
 
   // 获取唤醒词模型期望的输入特征帧数
-  const wwInputShape = wwSession.inputs[0].dims;
-  const wwFrameCount = wwInputShape?.[1] ?? 16;
+  // 注意：onnxruntime-web v1.27+ 的 InferenceSession 公共 API 不暴露 inputs 属性，
+  // 使用可选链安全访问，openWakeWord 标准为 16 帧（80ms/帧，共 1.28s 音频）
+  const wwFrameCount = wwSession.inputs?.[0]?.dims?.[1] ?? 16;
 
   // ── 常量 ──
   const FRAME_SIZE = 1280; // 80ms @ 16kHz openWakeword 标准帧
