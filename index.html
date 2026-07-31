@@ -407,7 +407,8 @@
     }
 
     .controls select,
-    .controls input[type="number"] {
+    .controls input[type="number"],
+    .controls input[type="text"] {
       padding: 8px 10px;
       background: var(--bg);
       border: 1px solid var(--border);
@@ -420,12 +421,16 @@
       touch-action: manipulation;
     }
     .controls select:focus,
-    .controls input[type="number"]:focus {
+    .controls input[type="number"]:focus,
+    .controls input[type="text"]:focus {
       border-color: var(--accent);
     }
     .controls select {
       min-width: 130px;
       cursor: pointer;
+    }
+    .controls input[type="text"] {
+      min-width: 150px;
     }
     .controls select option {
       background: var(--bg);
@@ -542,7 +547,8 @@
         padding-top: 8px;
       }
 
-      .controls select { width: 100%; }
+      .controls select,
+      .controls input[type="text"] { width: 100%; }
       .controls .spacer { display: none; }
       .btn { flex: 1; justify-content: center; }
 
@@ -580,9 +586,6 @@
 
     <!-- Model Loading Progress -->
     <div class="model-progress" id="modelProgress">
-      <div class="progress-item pending" id="mpWakeWord">
-        <span class="check">○</span> 准备唤醒词模型…
-      </div>
       <div class="progress-item pending" id="mpLive2D">
         <span class="check">○</span> 加载 Live2D 角色…
       </div>
@@ -602,14 +605,18 @@
     <div class="controls">
       <label>
         唤醒词
-        <select id="wakeWordSelect">
-          <option value="alexa">Alexa</option>
-          <option value="hey jarvis">Hey Jarvis</option>
-          <option value="hey mycroft">Hey Mycroft</option>
-          <option value="hey rhasspy">Hey Rhasspy</option>
-          <option value="weather">Weather</option>
-          <option value="timer">Timer</option>
-        </select>
+        <input id="wakeWordInput" list="wakeWordList" placeholder="输入唤醒词" autocomplete="off" />
+        <datalist id="wakeWordList">
+          <option value="hey jarvis"></option>
+          <option value="alexa"></option>
+          <option value="hey mycroft"></option>
+          <option value="hey rhasspy"></option>
+          <option value="weather"></option>
+          <option value="timer"></option>
+          <option value="小助手"></option>
+          <option value="嘿 时作"></option>
+          <option value="你好 助手"></option>
+        </datalist>
       </label>
       <label>
         超时
@@ -637,17 +644,19 @@
     const startBtn         = $('startBtn');
     const stopBtn          = $('stopBtn');
     const clearChatBtn     = $('clearChatBtn');
-    const wakeWordSelect   = $('wakeWordSelect');
+    const wakeWordInput    = $('wakeWordInput');
     const silenceTimeout   = $('silenceTimeout');
     const statusIndicator  = $('statusIndicator');
     const statusText       = $('statusText');
     const statusWave       = $('statusWave');
     const modelProgress    = $('modelProgress');
-    const mpWakeWord       = $('mpWakeWord');
     const mpLive2D         = $('mpLive2D');
     const live2dCanvas     = $('live2d-canvas');
     const live2dNameEl     = $('live2dName');
     const live2dStatusTip  = $('live2dStatusTip');
+
+    // ── 唤醒词初始值（localStorage 持久化） ────────────────────────────────
+    wakeWordInput.value = localStorage.getItem('WAKE_WORD') || 'hey jarvis';
 
     // ── Live2D Model Sources ─────────────────────────────────────────────
     // 模型文件来自 Live2D 官方 CubismWebSamples 仓库
@@ -857,16 +866,16 @@
       abortController = new AbortController();
       const signal = abortController.signal;
 
-      const wakeWord = wakeWordSelect.value;
+      const wakeWord = wakeWordInput.value.trim() || 'hey jarvis';
+      localStorage.setItem('WAKE_WORD', wakeWord);
       const timeout  = parseInt(silenceTimeout.value, 10) || 2000;
 
       startBtn.disabled = true;
       stopBtn.disabled = false;
-      wakeWordSelect.disabled = true;
+      wakeWordInput.disabled = true;
       silenceTimeout.disabled = true;
 
-      markProgress('WakeWord', 'active');
-      setStatus('loading', '正在加载唤醒词模型…');
+      setStatus('listening', '正在监听唤醒词…');
 
       try {
         const asrResult = await Promise.race([
@@ -879,8 +888,6 @@
         ]);
 
         if (signal.aborted) return;
-
-        markProgress('WakeWord', 'done');
 
         setStatus('processing', '语音识别完成，正在解析…');
 
@@ -973,7 +980,7 @@
       isRunning = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
-      wakeWordSelect.disabled = false;
+      wakeWordInput.disabled = false;
       silenceTimeout.disabled = false;
     }
 

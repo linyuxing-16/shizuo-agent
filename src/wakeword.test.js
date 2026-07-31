@@ -15,69 +15,12 @@ const localStorageMock = (() => {
 })();
 vi.stubGlobal('localStorage', localStorageMock);
 
-// ── Mock Cache API ─────────────────────────────────────────────────────────
-const mockCache = {
-  match: vi.fn(),
-  put: vi.fn(),
-};
-const mockCaches = {
-  open: vi.fn(async () => mockCache),
-};
-vi.stubGlobal('caches', mockCaches);
-
-// ── Mock fetch ─────────────────────────────────────────────────────────────
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
-
-// ── Mock onnxruntime-web ───────────────────────────────────────────────────
-/**
- * 使用可变引用对象解决 vi.mock 工厂的变量捕获问题
- * vi.mock 会被提升到文件顶部，此时 const 变量尚未初始化
- */
-const _ortImpl = {
-  createSession: null,
-  run: null,
-};
-
-/** @type {import('vitest').Mock} */
-let mockRun;
-/** @type {import('vitest').Mock} */
-let mockCreateSession;
-
-vi.mock('onnxruntime-web', () => {
-  const MockTensor = vi.fn(function (type, data, dims) {
-    this.type = type;
-    this.data = data;
-    this.dims = dims;
-  });
-
-  const create = (...args) => _ortImpl.createSession?.(...args);
-
-  return {
-    default: {
-      InferenceSession: { create },
-      Tensor: MockTensor,
-    },
-    InferenceSession: { create },
-    Tensor: MockTensor,
-    env: {
-      wasm: {
-        wasmPaths: undefined,
-      },
-    },
-  };
-});
+// ── Mock btoa（默认返回带前缀的假 base64） ─────────────────────────────────
+vi.stubGlobal('btoa', vi.fn((str) => `base64:${str}`));
 
 // ── Mock AudioContext / Web Audio API ──────────────────────────────────────
 let audioContextClose = vi.fn();
 let audioContextState = 'running';
-
-const mockAnalyserNode = {
-  fftSize: 256,
-  frequencyBinCount: 128,
-  getFloatTimeDomainData: vi.fn(),
-  disconnect: vi.fn(),
-};
 
 const mockScriptProcessorNode = {
   onaudioprocess: null,
@@ -95,7 +38,6 @@ const MockAudioContext = vi.fn(function () {
     sampleRate: 48000,
     state: audioContextState,
     createMediaStreamSource: vi.fn(() => mockMediaStreamSource),
-    createAnalyser: vi.fn(() => mockAnalyserNode),
     createScriptProcessor: vi.fn(() => {
       const proc = Object.create(mockScriptProcessorNode);
       proc.onaudioprocess = null;
@@ -113,16 +55,10 @@ vi.stubGlobal('AudioContext', MockAudioContext);
 vi.stubGlobal('webkitAudioContext', undefined);
 
 // ── Mock getUserMedia ──────────────────────────────────────────────────────
-const mockMicTrack = {
-  stop: vi.fn(),
-};
+const mockMicTrack = { stop: vi.fn() };
 const mockMicStream = {
   getTracks: vi.fn(() => [mockMicTrack]),
   getAudioTracks: vi.fn(() => [mockMicTrack]),
-};
-
-const mockRecorderStream = {
-  getTracks: vi.fn(() => [{ stop: vi.fn() }]),
 };
 
 vi.stubGlobal('navigator', {
@@ -131,112 +67,8 @@ vi.stubGlobal('navigator', {
   },
 });
 
-// ── Mock MediaRecorder ─────────────────────────────────────────────────────
-let recorderOnDataAvailable = null;
-let recorderOnStop = null;
-let recorderOnError = null;
-let recorderState = 'inactive';
-let recorderStart = vi.fn();
-let recorderStop = vi.fn();
-
-const MockMediaRecorder = vi.fn(function (stream, options) {
-  this.stream = stream;
-  this.mimeType = options?.mimeType || 'audio/webm';
-  this.state = recorderState;
-  this.start = recorderStart;
-  this.stop = vi.fn(() => {
-    this.state = 'inactive';
-    if (typeof recorderOnStop === 'function') recorderOnStop();
-  });
-
-  Object.defineProperty(this, 'ondataavailable', {
-    get() { return recorderOnDataAvailable; },
-    set(fn) { recorderOnDataAvailable = fn; },
-  });
-  Object.defineProperty(this, 'onstop', {
-    get() { return recorderOnStop; },
-    set(fn) { recorderOnStop = fn; },
-  });
-  Object.defineProperty(this, 'onerror', {
-    get() { return recorderOnError; },
-    set(fn) { recorderOnError = fn; },
-  });
-});
-
-MockMediaRecorder.isTypeSupported = vi.fn(() => true);
-
-vi.stubGlobal('MediaRecorder', MockMediaRecorder);
-
-// ── Mock Blob ──────────────────────────────────────────────────────────────
-const mockBlobArrayBuffer = vi.fn();
-vi.stubGlobal('Blob', vi.fn(function (parts, options) {
-  return {
-    arrayBuffer: mockBlobArrayBuffer,
-    size: parts.reduce((sum, p) => sum + (p.size || p.byteLength || 0), 0),
-    type: options?.type || '',
-  };
-}));
-
-// ── Mock btoa ──────────────────────────────────────────────────────────────
-vi.stubGlobal('btoa', vi.fn((str) => `base64:${str}`));
-
-// ── Mock AudioContext state ────────────────────────────────────────────────
-beforeEach(() => {
-  vi.clearAllMocks();
-  localStorageMock.clear();
-
-  // 重新初始化可变引用（解决 vi.mock 变量捕获问题）
-  mockCreateSession = vi.fn();
-  mockRun = vi.fn();
-  _ortImpl.createSession = mockCreateSession;
-  _ortImpl.run = mockRun;
-
-  mockAsr = vi.fn(async () => JSON.stringify({
-    choices: [{ message: { content: '[说话人A]: 你好' } }],
-  }));
-  _asrImpl.fn = mockAsr;
-
-  mockFetch.mockReset();
-  mockCache.match.mockReset();
-  mockCache.put.mockReset();
-  mockBlobArrayBuffer.mockReset();
-  recorderStart.mockReset();
-
-  audioContextState = 'running';
-  audioContextClose = vi.fn();
-  recorderOnDataAvailable = null;
-  recorderOnStop = null;
-  recorderOnError = null;
-  recorderState = 'inactive';
-  mockAnalyserNode.getFloatTimeDomainData.mockImplementation((arr) => {
-    // 默认返回非零数据（有声音）
-    for (let i = 0; i < arr.length; i++) arr[i] = 0.05;
-  });
-
-  // 默认 fetch 返回模拟的 Response 对象（含 clone 方法）
-  mockFetch.mockResolvedValue({
-    ok: true,
-    clone() { return this; },
-    arrayBuffer: async () => new ArrayBuffer(100),
-  });
-  // 默认缓存未命中
-  mockCache.match.mockResolvedValue(null);
-  // 默认创建成功
-  mockCreateSession.mockResolvedValue({
-    inputNames: ['input'],
-    outputNames: ['output'],
-    inputs: [{ dims: [1, 16, 1536] }],
-    run: mockRun,
-  });
-  // 默认推理结果：非唤醒（score < 0.5）
-  mockRun.mockResolvedValue({ output: { data: new Float32Array([0.1]) } });
-  // 默认 Blob.arrayBuffer
-  mockBlobArrayBuffer.mockResolvedValue(new ArrayBuffer(10));
-  // 默认 getUserMedia 返回录音流
-  navigator.mediaDevices.getUserMedia.mockResolvedValue(mockRecorderStream);
-});
-
 // ── Mock asr ────────────────────────────────────────────────────────────────
+// 使用可变引用对象解决 vi.mock 工厂的变量捕获问题
 const _asrImpl = { fn: null };
 let mockAsr;
 
@@ -244,15 +76,38 @@ vi.mock('./asr.js', () => ({
   asr: (...args) => _asrImpl.fn?.(...args),
 }));
 
+// ── 初始化 mock 状态 ────────────────────────────────────────────────────────
+beforeEach(() => {
+  vi.clearAllMocks();
+  localStorageMock.clear();
+
+  mockAsr = vi.fn(async () => JSON.stringify({
+    choices: [{ message: { content: '[说话人A]: 你好' } }],
+  }));
+  _asrImpl.fn = mockAsr;
+
+  audioContextState = 'running';
+  audioContextClose = vi.fn();
+  navigator.mediaDevices.getUserMedia.mockResolvedValue(mockMicStream);
+});
+
 // ── 导入待测模块 ──────────────────────────────────────────────────────────
-const { voiceActivate, WAKE_WORDS } = await import('./wakeword.js');
+const {
+  voiceActivate,
+  WAKE_WORD_SUGGESTIONS,
+  normalizeTranscript,
+  containsWakeWord,
+  int16ToWavBase64,
+} = await import('./wakeword.js');
 
 // ── 工具函数 ───────────────────────────────────────────────────────────────
+/**
+ * 触发一次 onaudioprocess，模拟一帧（4096 @48kHz → 约 1365 样本 @16kHz）
+ * @param {number} rmsValue - 帧内样本幅值（>0.01 视为语音，<0.01 视为静音）
+ */
 function triggerAudioProcess(rmsValue = 0.05) {
-  // 模拟 ScriptProcessorNode 的 onaudioprocess 回调
-  // 查找被创建的 processor
-  const createProcCall = MockAudioContext.mock.results[0]?.value?.createScriptProcessor;
-  const processor = createProcCall?.mock?.results?.[0]?.value;
+  const context = MockAudioContext.mock.results[0]?.value;
+  const processor = context?.createScriptProcessor?.mock?.results?.[0]?.value;
   if (!processor || !processor._onaudioprocess) return;
 
   const inputBuffer = {
@@ -262,159 +117,150 @@ function triggerAudioProcess(rmsValue = 0.05) {
     sampleRate: 48000,
   };
 
-  // 设置 AnalyserNode 返回值
-  mockAnalyserNode.getFloatTimeDomainData.mockImplementation((arr) => {
-    for (let i = 0; i < arr.length; i++) arr[i] = rmsValue;
-  });
-
-  processor._onaudioprocess({ inputBuffer });
+  return processor._onaudioprocess({ inputBuffer });
 }
 
-function triggerWakeWordDetection() {
-  // 让模型推理返回高分触发唤醒
-  mockRun.mockResolvedValue({ output: { data: new Float32Array([0.9]) } });
+/** 生成含唤醒词的 ASR JSON 字符串 */
+function asrJson(text) {
+  return JSON.stringify({ choices: [{ message: { content: text } }] });
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
-describe('WAKE_WORDS 常量', () => {
-  it('应包含所有预训练模型的唤醒词', () => {
-    expect(WAKE_WORDS).toEqual([
-      'alexa',
-      'hey mycroft',
-      'hey jarvis',
-      'hey rhasspy',
-      'weather',
-      'timer',
-    ]);
+describe('WAKE_WORD_SUGGESTIONS 常量', () => {
+  it('应导出建议唤醒词列表', () => {
+    expect(WAKE_WORD_SUGGESTIONS.length).toBeGreaterThan(0);
+    expect(WAKE_WORD_SUGGESTIONS).toContain('hey jarvis');
+  });
+});
+
+describe('文本匹配工具', () => {
+  it('normalizeTranscript 应去除说话人前缀、标点并小写化', () => {
+    expect(normalizeTranscript('[说话人A]: Hey, Jarvis! 今天天气怎么样？'))
+      .toBe('heyjarvis今天天气怎么样');
+  });
+
+  it('containsWakeWord 应匹配含空白/大小写的唤醒词', () => {
+    expect(containsWakeWord('heyjarvis今天天气', 'hey jarvis')).toBe(true);
+    expect(containsWakeWord('今天天气不错', 'hey jarvis')).toBe(false);
+    expect(containsWakeWord('嘿时作帮我查一下', '嘿 时作')).toBe(true);
+  });
+});
+
+describe('int16ToWavBase64', () => {
+  it('应生成合法的 WAV 头与 PCM 数据', () => {
+    const realBtoa = (str) => Buffer.from(str, 'binary').toString('base64');
+    vi.stubGlobal('btoa', realBtoa);
+    try {
+      const base64 = int16ToWavBase64(new Int16Array([0, 100, -100]));
+      const bytes = new Uint8Array(Buffer.from(base64, 'base64'));
+      const ascii = (off, len) => String.fromCharCode(...bytes.slice(off, off + len));
+      expect(ascii(0, 4)).toBe('RIFF');
+      expect(ascii(8, 4)).toBe('WAVE');
+      expect(ascii(12, 4)).toBe('fmt ');
+      expect(ascii(36, 4)).toBe('data');
+      expect(bytes.length).toBe(44 + 3 * 2);
+    } finally {
+      vi.stubGlobal('btoa', vi.fn((str) => `base64:${str}`));
+    }
   });
 });
 
 describe('voiceActivate 参数校验', () => {
-  it('不支持的唤醒词应抛出错误', async () => {
+  it('空唤醒词应抛出错误', async () => {
     localStorage.setItem('MIMO_API_KEY', 'test-key');
+    await expect(voiceActivate('', 3000)).rejects.toThrow('唤醒词不能为空');
+    await expect(voiceActivate('   ', 3000)).rejects.toThrow('唤醒词不能为空');
+  });
 
-    await expect(voiceActivate('你好', 3000)).rejects.toThrow(
-      '不支持的唤醒词 "你好"',
-    );
+  it('仅含标点的唤醒词应抛出错误', async () => {
+    localStorage.setItem('MIMO_API_KEY', 'test-key');
+    await expect(voiceActivate('!!!', 3000)).rejects.toThrow('唤醒词无效');
   });
 
   it('MIMO_API_KEY 未设置时应抛出错误', async () => {
     localStorageMock.clear();
-
-    await expect(voiceActivate('alexa', 3000)).rejects.toThrow(
+    await expect(voiceActivate('hey jarvis', 3000)).rejects.toThrow(
       'MIMO_API_KEY 未设置',
     );
   });
 
   it('silenceTimeoutMs 为负数应抛出错误', async () => {
     localStorage.setItem('MIMO_API_KEY', 'test-key');
-
-    await expect(voiceActivate('alexa', -1)).rejects.toThrow(
+    await expect(voiceActivate('hey jarvis', -1)).rejects.toThrow(
       'silenceTimeoutMs 必须是非负整数',
     );
   });
 });
 
-describe('voiceActivate 完整流程', () => {
+describe('voiceActivate 完整流程（ASR 周期检测）', () => {
   beforeEach(() => {
     localStorage.setItem('MIMO_API_KEY', 'test-key');
   });
 
-  it('应加载三个 ONNX 模型（melspectrogram、embedding、唤醒词）', async () => {
-    // 启动函数但不等待完成（需要模拟事件循环触发）
-    const promise = voiceActivate('alexa', 3000);
+  it('检测到唤醒词后静音超时应返回含唤醒词的 ASR 结果', async () => {
+    // 第一次调用为唤醒检测，用 deferred 精确控制完成时机
+    let resolveDetection;
+    mockAsr.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveDetection = resolve;
+    }));
+    // 后续调用（最终指令 ASR）直接返回含唤醒词的结果
+    mockAsr.mockImplementation(async () => asrJson('[说话人A]: hey jarvis 今天天气怎么样'));
 
-    // 触发一次音频处理让模型加载完成
-    await vi.waitFor(() => {
-      expect(mockCreateSession).toHaveBeenCalledTimes(3);
-    });
+    const promise = voiceActivate('hey jarvis', 100);
 
-    // 清理以防 hanging
-    audioContextClose();
-    expect(mockCreateSession).toHaveBeenCalledTimes(3);
-  });
-
-  it('检测到唤醒词后应开始录音', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-key');
-
-    const featDim = 1536;
-    const mockFeatures = new Float32Array(featDim);
-    for (let i = 0; i < featDim; i++) mockFeatures[i] = Math.random();
-
-    let runIndex = 0;
-    mockRun.mockImplementation(() => {
-      runIndex++;
-      if (runIndex <= 32) return { output: { data: mockFeatures } };
-      const pos = (runIndex - 33) % 3;
-      if (pos === 2) {
-        return { output: { data: new Float32Array([0.9]) } };
-      }
-      return { output: { data: mockFeatures } };
-    });
-
-    const promise = voiceActivate('alexa', 3000);
-
-    // 等待模型加载
-    await vi.waitFor(() => {
-      expect(mockCreateSession).toHaveBeenCalledTimes(3);
-    });
-
-    // 发送足够的音频帧
-    for (let i = 0; i < 30; i++) {
-      triggerAudioProcess(0.05);
+    // 发送足够的语音帧（每帧约 1365 样本 @16kHz，12 帧 ≈ 1s 触发检测）
+    for (let i = 0; i < 15; i++) {
+      await triggerAudioProcess(0.05);
     }
 
-    // 等待录音启动
+    // 等待唤醒检测调用 asr
     await vi.waitFor(() => {
-      expect(navigator.mediaDevices.getUserMedia.mock.calls.length).toBeGreaterThanOrEqual(2);
-    }, { timeout: 3000, interval: 20 });
-  });
-
-  it('静音超时后应停止录音并返回 ASR 结果', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-key');
-
-    const featDim = 1536;
-    const mockFeatures = new Float32Array(featDim);
-    for (let i = 0; i < featDim; i++) mockFeatures[i] = Math.random();
-
-    // 让 mockRun 在填充 16 帧后返回高分
-    let callCount = 0;
-    mockRun.mockImplementation(() => {
-      callCount++;
-      if (callCount <= 32) return { output: { data: mockFeatures } };
-      const inTriplet = (callCount - 33) % 3;
-      if (inTriplet === 2) return { output: { data: new Float32Array([0.9]) } };
-      return { output: { data: mockFeatures } };
+      expect(resolveDetection).toBeDefined();
     });
 
-    const promise = voiceActivate('alexa', 100);
+    // 完成检测：返回含唤醒词的文本 → wakeDetected = true
+    resolveDetection(asrJson('hey jarvis 今天天气怎么样'));
 
-    // 等待模型加载
-    await vi.waitFor(() => {
-      expect(mockCreateSession).toHaveBeenCalled();
-    }, { timeout: 2000, interval: 10 });
-
-    // 发送音频帧触发唤醒
-    for (let i = 0; i < 30; i++) {
-      triggerAudioProcess(0.05);
+    // 发送静音帧（100ms 静音 ≈ 2 帧）触发指令采集结束
+    for (let i = 0; i < 5; i++) {
+      await triggerAudioProcess(0.001);
     }
 
-    // 等待录音启动
-    await vi.waitFor(() => {
-      expect(navigator.mediaDevices.getUserMedia.mock.calls.length).toBeGreaterThanOrEqual(2);
-    }, { timeout: 3000, interval: 20 });
-
-    // 手动模拟录音停止流程（替代 VAD 超时）
-    expect(recorderOnStop).toBeDefined();
-    if (recorderOnDataAvailable) {
-      recorderOnDataAvailable({ data: { size: 100 } });
-    }
-    // 直接触发 recorder.onstop
-    recorderOnStop();
-
-    // 等待 ASR 结果
+    // 等待最终 ASR 结果
     const result = await promise;
     expect(typeof result).toBe('string');
-    expect(result).toContain('你好');
+    expect(result).toContain('hey jarvis');
+
+    // 应至少调用两次 asr（唤醒检测 + 最终），且使用 WAV 非流式
+    expect(mockAsr.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of mockAsr.mock.calls) {
+      expect(call[1]).toMatchObject({ format: 'wav', stream: false });
+    }
+  }, 15000);
+
+  it('未检测到唤醒词时不应触发指令采集', async () => {
+    mockAsr.mockResolvedValue(asrJson('[说话人A]: 今天天气怎么样'));
+
+    const promise = voiceActivate('hey jarvis', 100);
+
+    // 发送语音帧，唤醒检测返回不含唤醒词的文本
+    for (let i = 0; i < 15; i++) {
+      await triggerAudioProcess(0.05);
+    }
+    await vi.waitFor(() => {
+      expect(mockAsr).toHaveBeenCalled();
+    });
+
+    // 静音帧不应触发最终 ASR（未唤醒）
+    for (let i = 0; i < 10; i++) {
+      await triggerAudioProcess(0.001);
+    }
+    expect(mockAsr.mock.calls.length).toBeLessThanOrEqual(1);
+
+    // promise 应保持 pending
+    let settled = false;
+    promise.finally(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
   }, 15000);
 });

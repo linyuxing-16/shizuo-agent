@@ -1,85 +1,41 @@
-import * as ort from 'onnxruntime-web';
 import { asr } from './asr.js';
 
-// ── 配置 onnxruntime-web WASM 后端路径 ────────────────────────────────────
-// 使用对象形式仅覆盖 .wasm 文件 URL，保留 onnxruntime-web 的内嵌 WASM 模块。
-// 字符串形式会禁用内嵌模块并触发动态 import()，导致 Vite 拦截错误。
-ort.env.wasm.wasmPaths = {
-  wasm: '/shizuo-agent/wasm/ort-wasm-simd-threaded.jsep.wasm',
-};
+// ── 常量 ──────────────────────────────────────────────────────────────────
 
-// ── 支持的唤醒词列表（对应 openWakeWord v0.5.1 预训练模型） ──────────────
+/** @type {number} 目标采样率（16kHz，WAV 编码与检测窗口统一使用） */
+const SAMPLE_RATE = 16000;
+
+/** @type {number} VAD 语音/静音能量阈值（RMS） */
+const VAD_THRESHOLD = 0.01;
+
+/** @type {number} 唤醒词检测间隔（毫秒） */
+const DETECT_INTERVAL_MS = 1000;
+
+/** @type {number} 每次送 ASR 的音频窗口长度（毫秒） */
+const DETECT_WINDOW_MS = 2000;
+
+/** @type {number} 滚动缓冲上限（毫秒），防止静音期间内存无限增长 */
+const MAX_BUFFER_MS = 6000;
+
+/** @type {number} ScriptProcessorNode 缓冲大小 */
+const PROCESSOR_BUFFER_SIZE = 4096;
+
+// ── 唤醒词建议列表（供 UI 的 datalist 使用） ──────────────────────────────
 
 /** @type {readonly string[]} */
-export const WAKE_WORDS = Object.freeze([
+export const WAKE_WORD_SUGGESTIONS = Object.freeze([
   'alexa',
-  'hey mycroft',
   'hey jarvis',
+  'hey mycroft',
   'hey rhasspy',
   'weather',
   'timer',
+  '小助手',
+  '嘿 时作',
+  '你好 助手',
 ]);
 
-/** @type {ReadonlySet<string>} */
-const WAKE_WORDS_SET = new Set(WAKE_WORDS);
-
-// ── ONNX 模型 URL 映射 ──────────────────────────────────────────────────
-
-const MODEL_BASE = '/shizuo-agent/models/openWakeWord';
-
-/** @type {Record<string, string>} */
-const FEATURE_MODEL_URLS = {
-  melspectrogram: `${MODEL_BASE}/melspectrogram.onnx`,
-  embedding: `${MODEL_BASE}/embedding_model.onnx`,
-};
-
-/** @type {Record<string, string>} */
-const WAKE_WORD_MODEL_URLS = {
-  alexa: `${MODEL_BASE}/alexa_v0.1.onnx`,
-  'hey mycroft': `${MODEL_BASE}/hey_mycroft_v0.1.onnx`,
-  'hey jarvis': `${MODEL_BASE}/hey_jarvis_v0.1.onnx`,
-  'hey rhasspy': `${MODEL_BASE}/hey_rhasspy_v0.1.onnx`,
-  weather: `${MODEL_BASE}/weather_v0.1.onnx`,
-  timer: `${MODEL_BASE}/timer_v0.1.onnx`,
-};
-
-// ── 模型下载与缓存 ──────────────────────────────────────────────────────
-
-const CACHE_NAME = 'openwakeword-models-v1';
-
-/**
- * 通过 Cache API 下载并缓存 ONNX 模型文件
- * @param {string} url - 模型下载 URL
- * @returns {Promise<ArrayBuffer>} 模型文件的 ArrayBuffer
- */
-async function fetchModel(url) {
-  const cache = await caches.open(CACHE_NAME);
-  let response = await cache.match(url);
-
-  if (!response) {
-    response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`模型下载失败：${url} (${response.status})`);
-    }
-    await cache.put(url, response.clone());
-  }
-
-  return await response.arrayBuffer();
-}
-
-/**
- * 下载并创建 ONNX InferenceSession
- * @param {string} url - 模型文件 URL
- * @returns {Promise<ort.InferenceSession>}
- */
-async function createSession(url) {
-  const buffer = await fetchModel(url);
-  return await ort.InferenceSession.create(buffer, {
-    executionProviders: ['wasm'],
-  });
-}
-
-// ── 音频工具函数 ────────────────────────────────────────────────────────
+// ── 音频工具函数 ──────────────────────────────────────────────────────────
 
 /**
  * 将 Float32Array 音频数据转为 Int16Array（16-bit PCM）
@@ -119,7 +75,7 @@ function linearResample(samples, fromRate, toRate) {
 }
 
 /**
- * 计算音频帧的 RMS（均方根）能量
+ * 计算音频片段的 RMS（均方根）能量
  * @param {Float32Array} samples
  * @returns {number}
  */
@@ -144,29 +100,125 @@ function uint8ToBase64(bytes) {
   return btoa(binary);
 }
 
+/**
+ * 在 DataView 的指定偏移写入 ASCII 字符串
+ * @param {DataView} view
+ * @param {number} offset
+ * @param {string} str
+ */
+function writeAscii(view, offset, str) {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
+}
+
+/**
+ * 将 Int16Array PCM 数据编码为 WAV 文件（16kHz、16bit、单声道），返回裸 base64
+ * @param {Int16Array} samples - 16kHz 16bit 单声道 PCM 数据
+ * @returns {string} WAV 文件的 base64 编码（不含 data URI 前缀）
+ *
+ * @example
+ * import { int16ToWavBase64 } from './wakeword.js';
+ *
+ * const base64 = int16ToWavBase64(new Int16Array([0, 1000, -1000]));
+ */
+export function int16ToWavBase64(samples) {
+  const bytesPerSample = 2;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // RIFF 头
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, 'WAVE');
+
+  // fmt 块
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // fmt 块大小
+  view.setUint16(20, 1, true); // PCM 格式
+  view.setUint16(22, 1, true); // 单声道
+  view.setUint32(24, SAMPLE_RATE, true); // 采样率
+  view.setUint32(28, SAMPLE_RATE * bytesPerSample, true); // 字节率
+  view.setUint16(32, bytesPerSample, true); // 块对齐
+  view.setUint16(34, 16, true); // 位深
+
+  // data 块
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  // PCM 数据
+  for (let i = 0; i < samples.length; i++) {
+    view.setInt16(44 + i * bytesPerSample, samples[i], true);
+  }
+
+  return uint8ToBase64(new Uint8Array(buffer));
+}
+
+// ── 文本匹配工具 ──────────────────────────────────────────────────────────
+
+/**
+ * 归一化 ASR 文本：去说话人前缀、小写、去标点符号与空白
+ * @param {string} text - 原始 ASR 文本或唤醒词
+ * @returns {string}
+ *
+ * @example
+ * import { normalizeTranscript } from './wakeword.js';
+ *
+ * normalizeTranscript('[说话人A]: Hey, Jarvis! 今天天气怎么样？');
+ * // → 'heyjarvis今天天气怎么样'
+ */
+export function normalizeTranscript(text) {
+  return text
+    .replace(/\[[^\]]*\]\s*:/g, '') // 去掉 "[说话人A]:" 说话人前缀
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '') // 去空白、标点、符号
+    .trim();
+}
+
+/**
+ * 判断归一化后的 ASR 文本是否包含唤醒词
+ * @param {string} transcript - 已归一化的 ASR 文本
+ * @param {string} wakeWord - 唤醒词（内部会自动归一化）
+ * @returns {boolean}
+ *
+ * @example
+ * import { containsWakeWord } from './wakeword.js';
+ *
+ * containsWakeWord('heyjarvis今天天气', 'hey jarvis'); // → true
+ */
+export function containsWakeWord(transcript, wakeWord) {
+  const normalized = normalizeTranscript(wakeWord);
+  if (!normalized) return false;
+  return transcript.includes(normalized);
+}
+
 // ── 主函数 ──────────────────────────────────────────────────────────────
 
 /**
- * 监听唤醒词，检测到后录音并通过 VAD 判断结束，最后调用 ASR 返回识别结果
+ * 通过 ASR 周期检测唤醒词：持续录音，检测到唤醒词后继续录音，
+ * 静音超时后返回包含唤醒词的完整识别结果
  *
- * @param {'alexa'|'hey mycroft'|'hey jarvis'|'hey rhasspy'|'weather'|'timer'} wakeWord - 唤醒词（必须是预训练模型支持的词）
- * @param {number} silenceTimeoutMs - 静音超时时间（毫秒），超过此时间的连续静音将停止录音
- * @returns {Promise<string>} ASR 返回的 JSON 字符串
+ * @param {string} wakeWord - 唤醒词（任意短语，如 'hey jarvis'、'小助手'）
+ * @param {number} silenceTimeoutMs - 静音超时时间（毫秒），超过此时间的连续静音将结束录音
+ * @returns {Promise<string>} ASR 返回的 JSON 字符串（含唤醒词）
  *
- * @throws {Error} 当 wakeWord 不受支持、MIMO_API_KEY 未设置或浏览器 API 不可用时抛出
+ * @throws {Error} 当 wakeWord 为空/无效、MIMO_API_KEY 未设置或浏览器 API 不可用时抛出
  *
  * @example
  * import { voiceActivate } from './wakeword.js';
  *
- * const result = await voiceActivate('alexa', 3000);
+ * const result = await voiceActivate('hey jarvis', 3000);
  * console.log(result);
  */
 export async function voiceActivate(wakeWord, silenceTimeoutMs) {
   // ── 参数校验 ──
-  if (!WAKE_WORDS_SET.has(wakeWord)) {
-    throw new Error(
-      `不支持的唤醒词 "${wakeWord}"。可选值：${WAKE_WORDS.join(', ')}`,
-    );
+  if (typeof wakeWord !== 'string' || !wakeWord.trim()) {
+    throw new Error('唤醒词不能为空');
+  }
+  const normalizedWakeWord = normalizeTranscript(wakeWord);
+  if (!normalizedWakeWord) {
+    throw new Error('唤醒词无效：不能仅包含标点或空白');
   }
 
   if (typeof silenceTimeoutMs !== 'number' || silenceTimeoutMs < 0) {
@@ -187,39 +239,15 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
   if (!hasAudioContext) {
     throw new Error('当前浏览器不支持 AudioContext');
   }
-  const hasMediaRecorder = (typeof window !== 'undefined' && window.MediaRecorder)
-    || typeof MediaRecorder !== 'undefined';
-  if (!hasMediaRecorder) {
-    throw new Error('当前浏览器不支持 MediaRecorder');
-  }
-  if (typeof caches === 'undefined') {
-    throw new Error('当前浏览器不支持 Cache API');
-  }
 
-  // ── 加载 ONNX 模型 ──
-  const [melspecSession, embeddingSession, wwSession] = await Promise.all([
-    createSession(FEATURE_MODEL_URLS.melspectrogram),
-    createSession(FEATURE_MODEL_URLS.embedding),
-    createSession(WAKE_WORD_MODEL_URLS[wakeWord]),
-  ]);
-
-  const melspecInputName = melspecSession.inputNames[0];
-  const embeddingInputName = embeddingSession.inputNames[0];
-  const wwInputName = wwSession.inputNames[0];
-  const wwOutputName = wwSession.outputNames[0];
-
-  // 获取唤醒词模型期望的输入特征帧数
-  // 注意：onnxruntime-web v1.27+ 的 InferenceSession 公共 API 不暴露 inputs 属性，
-  // 使用可选链安全访问，openWakeWord 标准为 16 帧（80ms/帧，共 1.28s 音频）
-  const wwFrameCount = wwSession.inputs?.[0]?.dims?.[1] ?? 16;
-
-  // ── 常量 ──
-  const FRAME_SIZE = 1280; // 80ms @ 16kHz openWakeword 标准帧
-  const VAD_THRESHOLD = 0.01;
-  const TARGET_FRAME_COUNT = wwFrameCount;
+  // ── 采样相关常量 ──
+  const msPerSample = 1000 / SAMPLE_RATE;
+  const detectIntervalSamples = Math.round(DETECT_INTERVAL_MS / msPerSample); // 1s
+  const detectWindowSamples = Math.round(DETECT_WINDOW_MS / msPerSample); // 2s
+  const maxBufferSamples = Math.round(MAX_BUFFER_MS / msPerSample); // 6s
+  const silenceTimeoutSamples = Math.round((silenceTimeoutMs / 1000) * SAMPLE_RATE);
 
   // ── 创建一个 Promise 链，最终 resolve ASR 结果 ──
-  // 使用外部的 resolve/reject，在流程结束时触发
   let resolveResult;
   let rejectResult;
   const resultPromise = new Promise((resolve, reject) => {
@@ -228,121 +256,142 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
   });
 
   // ── 状态变量 ──
-  /** @type {Float32Array[]} 降采样后的音频帧缓存 */
-  const audioBuffer = [];
-  let accumulatedSamples = 0;
-  /** @type {Float32Array[]} embedding 特征缓存 */
-  const featureBuffer = [];
+  /** @type {Int16Array[]} 16kHz Int16 滚动缓冲（分块存储） */
+  const bufferChunks = [];
+  /** @type {number} 已推入缓冲的总样本数（单调递增，全局索引） */
+  let totalSamples = 0;
+  /** @type {number} 缓冲中第一个样本的全局索引（被裁剪头部后前移） */
+  let bufferStart = 0;
+  /** @type {number} 自上次检测以来累积的样本数 */
+  let samplesSinceLastDetect = 0;
+  /** @type {number} 唤醒后连续静音样本数 */
+  let silentSamples = 0;
 
-  let wakeWordDetected = false;
-  let vadActive = false;
-  let silenceStart = null;
+  let wakeDetected = false;
+  let wakeSliceStart = 0;
+  let detectionInFlight = false;
   let cleanedUp = false;
 
-  /** @type {MediaRecorder|null} */
-  let recorder = null;
-  /** @type {Blob[]} */
-  const recordedChunks = [];
-  /** @type {MediaStream|null} 录音专用流 */
-  let recordingStream = null;
+  /** @type {MediaStream|null} */
+  let micStream = null;
+  /** @type {AudioContext|null} */
+  let audioContext = null;
+  /** @type {ScriptProcessorNode|null} */
+  let processor = null;
+  /** @type {MediaStreamAudioSourceNode|null} */
+  let source = null;
 
-  // ── 音频推理管线 ──
-  async function processAudioFrame(pcmFrame) {
-    if (wakeWordDetected || cleanedUp) return;
+  // ── 缓冲工具 ──
+  function pushSamples(samples) {
+    bufferChunks.push(samples);
+    totalSamples += samples.length;
+    samplesSinceLastDetect += samples.length;
 
-    // Int16 → Float32 [-1, 1]
-    const floatFrame = new Float32Array(pcmFrame.length);
-    for (let i = 0; i < pcmFrame.length; i++) {
-      floatFrame[i] = pcmFrame[i] / (pcmFrame[i] < 0 ? 0x8000 : 0x7fff);
+    // 裁剪超出上限的头部数据
+    let overflow = totalSamples - bufferStart - maxBufferSamples;
+    while (overflow > 0 && bufferChunks.length > 0) {
+      const head = bufferChunks[0];
+      if (head.length <= overflow) {
+        bufferChunks.shift();
+        bufferStart += head.length;
+        overflow -= head.length;
+      } else {
+        bufferChunks[0] = head.subarray(overflow);
+        bufferStart += overflow;
+        overflow = 0;
+      }
     }
+  }
+
+  /**
+   * 从滚动缓冲中取出 [start, end) 全局样本区间
+   * @param {number} start - 全局起始样本索引
+   * @param {number} end - 全局结束样本索引
+   * @returns {Int16Array}
+   */
+  function sliceSamples(start, end) {
+    const parts = [];
+    let cursor = bufferStart;
+    for (const chunk of bufferChunks) {
+      const chunkEnd = cursor + chunk.length;
+      if (chunkEnd <= start) {
+        cursor = chunkEnd;
+        continue;
+      }
+      if (cursor >= end) break;
+      const from = Math.max(0, start - cursor);
+      const to = Math.min(chunk.length, end - cursor);
+      if (to > from) parts.push(chunk.subarray(from, to));
+      cursor = chunkEnd;
+    }
+    const total = parts.reduce((sum, p) => sum + p.length, 0);
+    const out = new Int16Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      out.set(part, offset);
+      offset += part.length;
+    }
+    return out;
+  }
+
+  /**
+   * 取缓冲末尾最近 count 个样本
+   * @param {number} count
+   * @returns {Int16Array}
+   */
+  function recentSamples(count) {
+    const start = Math.max(bufferStart, totalSamples - count);
+    return sliceSamples(start, totalSamples);
+  }
+
+  // ── ASR 文本提取 ──
+  /**
+   * 从 ASR 返回的 JSON 字符串中提取纯文本
+   * @param {string} asrJson
+   * @returns {string}
+   */
+  function extractTranscript(asrJson) {
+    try {
+      const parsed = typeof asrJson === 'string' ? JSON.parse(asrJson) : asrJson;
+      return parsed?.choices?.[0]?.message?.content || '';
+    } catch {
+      return typeof asrJson === 'string' ? asrJson : '';
+    }
+  }
+
+  // ── 唤醒词检测（送最近窗口给 ASR 并匹配） ──
+  async function checkWakeWord() {
+    const windowSamples = recentSamples(detectWindowSamples);
+    if (windowSamples.length === 0) return;
+
+    const base64 = int16ToWavBase64(windowSamples);
+    const result = await asr(base64, { language: 'auto', format: 'wav', stream: false });
+
+    const transcript = normalizeTranscript(extractTranscript(result));
+    if (containsWakeWord(transcript, normalizedWakeWord)) {
+      // 记录切片起点（当前窗口起点），确保最终结果包含唤醒词
+      wakeSliceStart = Math.max(bufferStart, totalSamples - detectWindowSamples);
+      wakeDetected = true;
+      silentSamples = 0;
+    }
+  }
+
+  // ── 指令采集结束（静音超时）：切片 → ASR → 返回结果 ──
+  async function finalizeCommand() {
+    if (cleanedUp) return;
+    const commandSamples = sliceSamples(wakeSliceStart, totalSamples);
+    cleanup();
 
     try {
-      // melspectrogram → embedding
-      const melspecInput = new ort.Tensor('float32', floatFrame, [1, 1, floatFrame.length]);
-      const { [melspecSession.outputNames[0]]: melspecOut } = await melspecSession.run({ [melspecInputName]: melspecInput });
-
-      const { [embeddingSession.outputNames[0]]: embOut } = await embeddingSession.run({ [embeddingInputName]: melspecOut });
-
-      // 缓存 embedding 特征
-      const embData = /** @type {Float32Array} */ (embOut.data);
-      featureBuffer.push(new Float32Array(embData));
-      while (featureBuffer.length > TARGET_FRAME_COUNT) {
-        featureBuffer.shift();
+      if (commandSamples.length === 0) {
+        resolveResult(JSON.stringify({ choices: [{ message: { content: '' } }] }));
+        return;
       }
-
-      // 缓存足够后运行唤醒词模型
-      if (featureBuffer.length >= TARGET_FRAME_COUNT) {
-        const recent = featureBuffer.slice(-TARGET_FRAME_COUNT);
-        const flatLen = recent.reduce((sum, arr) => sum + arr.length, 0);
-        const featDim = flatLen / TARGET_FRAME_COUNT;
-        const flat = new Float32Array(flatLen);
-        let offset = 0;
-        for (const arr of recent) {
-          flat.set(arr, offset);
-          offset += arr.length;
-        }
-
-        const wwInput = new ort.Tensor('float32', flat, [1, TARGET_FRAME_COUNT, featDim]);
-        const { [wwOutputName]: wwOut } = await wwSession.run({ [wwInputName]: wwInput });
-        const score = /** @type {Float32Array} */ (wwOut.data)[0];
-
-        if (score > 0.5) {
-          wakeWordDetected = true;
-          startRecording().catch(rejectResult);
-        }
-      }
+      const base64 = int16ToWavBase64(commandSamples);
+      const result = await asr(base64, { language: 'auto', format: 'wav', stream: false });
+      resolveResult(result);
     } catch (err) {
       rejectResult(err);
-    }
-  }
-
-  // ── 录音 ──
-  async function startRecording() {
-    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
-
-    recorder = new MediaRecorder(recordingStream, { mimeType });
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) recordedChunks.push(event.data);
-    };
-
-    recorder.onstop = async () => {
-      // 停止录音流
-      if (recordingStream) {
-        recordingStream.getTracks().forEach((t) => t.stop());
-        recordingStream = null;
-      }
-
-      if (cleanedUp) return;
-
-      // 合并录音数据 → base64 → ASR
-      const blob = new Blob(recordedChunks, { type: mimeType });
-      const arrayBuffer = await blob.arrayBuffer();
-      const base64 = uint8ToBase64(new Uint8Array(arrayBuffer));
-      const format = mimeType.includes('opus') ? 'webm' : 'webm';
-
-      try {
-        const asrResult = await asr(base64, { language: 'auto', format, stream: false });
-        resolveResult(asrResult);
-      } catch (err) {
-        rejectResult(err);
-      }
-    };
-
-    recorder.onerror = () => {
-      rejectResult(new Error('录音发生错误'));
-    };
-
-    recorder.start(100);
-  }
-
-  function stopRecording() {
-    if (recorder && recorder.state !== 'inactive') {
-      recorder.stop();
     }
   }
 
@@ -352,15 +401,14 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
     cleanedUp = true;
 
     try {
-      processor.disconnect();
-      source.disconnect();
-      analyser.disconnect();
+      processor?.disconnect();
+      source?.disconnect();
     } catch (_) { /* ignore */ }
 
     if (micStream) {
       micStream.getTracks().forEach((t) => t.stop());
     }
-    if (audioContext.state !== 'closed') {
+    if (audioContext && audioContext.state !== 'closed') {
       audioContext.close();
     }
   }
@@ -368,70 +416,50 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
   // ── 麦克风捕获 ──
   const AC = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext))
     || globalThis.AudioContext;
-  const audioContext = new AC();
+  audioContext = new AC();
   const sampleRate = audioContext.sampleRate;
-  const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const source = audioContext.createMediaStreamSource(micStream);
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  source = audioContext.createMediaStreamSource(micStream);
 
-  // VAD AnalyserNode
-  const analyser = audioContext.createAnalyser();
-  analyser.fftSize = 256;
-  source.connect(analyser);
-
-  // ScriptProcessorNode
-  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  processor = audioContext.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1);
 
   processor.onaudioprocess = async (event) => {
     if (cleanedUp) return;
 
     const input = event.inputBuffer.getChannelData(0);
-    const downsampled = linearResample(input, sampleRate, 16000);
+    const downsampled = linearResample(input, sampleRate, SAMPLE_RATE);
+    const frameRms = computeRMS(downsampled);
 
-    if (!wakeWordDetected) {
+    // 写入滚动缓冲（Int16）
+    pushSamples(float32ToInt16(downsampled));
+
+    if (!wakeDetected) {
       // ── 唤醒词检测阶段 ──
-      audioBuffer.push(downsampled);
-      accumulatedSamples += downsampled.length;
-
-      while (accumulatedSamples >= FRAME_SIZE) {
-        // 合并缓冲
-        let totalLen = 0;
-        for (const buf of audioBuffer) totalLen += buf.length;
-        const combined = new Float32Array(totalLen);
-        let off = 0;
-        for (const buf of audioBuffer) {
-          combined.set(buf, off);
-          off += buf.length;
-        }
-        audioBuffer.length = 0;
-        accumulatedSamples = 0;
-
-        const numFrames = Math.floor(combined.length / FRAME_SIZE);
-        for (let i = 0; i < numFrames; i++) {
-          const frame = combined.subarray(i * FRAME_SIZE, (i + 1) * FRAME_SIZE);
-          await processAudioFrame(float32ToInt16(frame));
-          if (wakeWordDetected) break;
-        }
+      if (
+        !detectionInFlight &&
+        frameRms >= VAD_THRESHOLD &&
+        samplesSinceLastDetect >= detectIntervalSamples
+      ) {
+        samplesSinceLastDetect = 0;
+        detectionInFlight = true;
+        checkWakeWord()
+          .catch((err) => {
+            // 单次检测失败不中断监听，仅记录日志
+            console.warn('唤醒词检测 ASR 失败:', err);
+          })
+          .finally(() => {
+            detectionInFlight = false;
+          });
       }
     } else {
-      // ── VAD 阶段 ──
-      if (!vadActive) {
-        vadActive = true;
-        silenceStart = null;
-      }
-
-      const timeData = new Float32Array(analyser.frequencyBinCount);
-      analyser.getFloatTimeDomainData(timeData);
-      const rms = computeRMS(timeData);
-
-      if (rms < VAD_THRESHOLD) {
-        if (silenceStart === null) {
-          silenceStart = Date.now();
-        } else if (Date.now() - silenceStart >= silenceTimeoutMs) {
-          stopRecording();
-          cleanup();
+      // ── 指令采集阶段（VAD 静音超时结束） ──
+      if (frameRms < VAD_THRESHOLD) {
+        silentSamples += downsampled.length;
+        if (silentSamples >= silenceTimeoutSamples) {
+          finalizeCommand().catch(rejectResult);
         }
       } else {
-        silenceStart = null;
+        silentSamples = 0;
       }
     }
   };

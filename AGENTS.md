@@ -5,7 +5,7 @@
 Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → ASR 识别 → LLM 推理 → TTS 语音合成 → Live2D 角色展示的完整语音交互闭环。
 
 ```
-唤醒词检测（openWakeWord ONNX）→ 录音 → ASR（MIMO API）→ AI 推理（DeepSeek + Mem0 记忆）→ TTS（MIMO API）→ PCM16 播放（Web Audio API）
+唤醒词检测 + 指令识别（ASR 周期检测）→ AI 推理（DeepSeek + Mem0 记忆）→ TTS（MIMO API）→ PCM16 播放（Web Audio API）
 ```
 
 ## 构建与测试
@@ -25,7 +25,7 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 - **`src/agent.js`** — LangGraph agent，使用 `ChatDeepSeek` + `MemorySaver`（checkpointer），流式输出通过 `streamMode: 'messages'` + `metadata?.node === 'agent'` 过滤
 - **`src/asr.js`** — MIMO ASR API（OpenAI 兼容客户端），返回含说话人标签的文本
 - **`src/tts.js`** — MIMO TTS API，默认闽南语合成；`tts()` 非流式，`streamTts()` 流式（默认 `pcm16` 格式，yield `ArrayBuffer`）
-- **`src/wakeword.js`** — openWakeWord ONNX 模型 + VAD（RMS 阈值 0.01），`voiceActivate(wakeWord, silenceTimeoutMs)` 返回 ASR 结果 JSON 字符串
+- **`src/wakeword.js`** — ASR 周期检测唤醒词 + VAD（RMS 阈值 0.01），`voiceActivate(wakeWord, silenceTimeoutMs)` 返回 ASR 结果 JSON 字符串（含唤醒词）
 - **`src/audioPlayer.js`** — 纯 Web Audio API，`playPcm16(Int16Array)` 24kHz 播放
 - **`src/memory.js`** — Mem0 长期记忆；`memoryMiddleware`（`after_agent` 中间件）自动保存对话，`searchMemoryTool`（名称 `search_memory`）供 agent 使用
 - **`index.html`** — 主界面 + Live2D（oh-my-live2d）+ 语音循环
@@ -33,14 +33,13 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 
 ### 数据流
 
-1. `voiceActivate` 唤醒 → 录音 → ASR → agent 推理（含记忆搜索） → TTS → 音频播放
+1. `voiceActivate` 唤醒检测（ASR 周期检测）→ 指令识别（ASR）→ agent 推理（含记忆搜索） → TTS → 音频播放
 2. 用户可通过 `AbortController` + `Promise.race` 中断语音循环
 
 ### 依赖说明
 
 - `openai` SDK 复用于 MIMO API（非 OpenAI），base URL `https://api.xiaomimimo.com/v1`
 - `langchain` 的 `tool` 和 `createMiddleware` 从 `'langchain'` 直接导入
-- `onnxruntime-web` 使用 WASM 执行后端
 - Vite 构建时 `oh-my-live2d` / `mem0ai` 的 Node.js 模块引用会被 tree-shake 移除，不影响浏览器运行
 
 ## 编码规范
@@ -55,8 +54,8 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 
 | 类别 | 规范 | 示例 |
 |------|------|------|
-| 变量/函数 | `camelCase` | `getConfig`, `wakeWordDetected` |
-| 常量 | `UPPER_SNAKE_CASE` | `WAKE_WORDS`, `SAMPLE_RATE` |
+| 变量/函数 | `camelCase` | `getConfig`, `normalizeTranscript` |
+| 常量 | `UPPER_SNAKE_CASE` | `WAKE_WORD_SUGGESTIONS`, `SAMPLE_RATE` |
 | 导出函数 | 动词开头 | `asr()`, `streamTts()`, `voiceActivate()` |
 | 文件名 | `camelCase.js` | `agent.js`, `audioPlayer.js` |
 | 测试文件 | `xxx.test.js` | `asr.test.js` |
@@ -64,7 +63,7 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 ### 错误处理
 
 - 函数入口防御性校验，不满足时 `throw new Error('中文错误信息')`
-- 浏览器 API 兼容检查（`getUserMedia`、`AudioContext`、`MediaRecorder`、`caches`）
+- 浏览器 API 兼容检查（`getUserMedia`、`AudioContext`）
 - 清理阶段的非关键错误静默捕获：`catch { /* ignore */ }`
 
 ### JSDoc
@@ -75,9 +74,9 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 
 - `vi.mock('module', factory)` 模块级 mock
 - `vi.stubGlobal('name', value)` 模拟全局 API
-- 可变引用对象（如 `_ortImpl`、`_asrImpl`）解决 `vi.mock` 工厂函数的变量捕获问题
+- 可变引用对象（如 `_asrImpl`）解决 `vi.mock` 工厂函数的变量捕获问题
 - 使用 `vi.waitFor(() => { expect(...).to... })` 异步等待条件
-- `wakeword.test.js` 中需手动触发 `onaudioprocess`、模拟音频帧、调用 `recorderOnStop`
+- `wakeword.test.js` 中需手动触发 `onaudioprocess`、模拟音频帧，驱动 ASR 检测与静音结束
 
 ## 配置项
 
@@ -92,6 +91,7 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 | `MEM0_USER_ID` | Mem0 User ID（默认 `default-user`） | ❌ |
 | `MIMO_TTS_DIALECT` | TTS 方言（默认 `闽南语`） | ❌ |
 | `MIMO_TTS_VOICE` | TTS 音色（默认 `Chloe`） | ❌ |
+| `WAKE_WORD` | 自定义唤醒词（默认 `hey jarvis`） | ❌ |
 
 ## 部署
 
