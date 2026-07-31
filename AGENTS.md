@@ -91,7 +91,7 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 | `MEM0_USER_ID` | Mem0 User ID（默认 `default-user`） | ❌ |
 | `MIMO_TTS_DIALECT` | TTS 方言（默认 `闽南语`） | ❌ |
 | `MIMO_TTS_VOICE` | TTS 音色（默认 `Chloe`） | ❌ |
-| `WAKE_WORD` | 自定义唤醒词（默认 `hey jarvis`） | ❌ |
+| `WAKE_WORD` | 自定义唤醒词（默认 `你好 助手`） | ❌ |
 
 ## 部署
 

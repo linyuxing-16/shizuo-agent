@@ -25,31 +25,62 @@ import { memoryMiddleware, searchMemoryTool } from './memory.js';
  * // 当消息 token 数达到 128000 时自动摘要历史消息，保留最近 20 条
  */
 
-const model = new ChatDeepSeek({
-  model: 'deepseek-chat',
-  apiKey: localStorage.getItem('DEEPSEEK_API_KEY'),
-});
+const SYSTEM_PROMPT =
+  '你是一个智能 AI 助手，拥有长期记忆能力。' +
+  '你可以使用 search_memory 工具搜索历史对话记忆，' +
+  '以记住用户之前提到过的信息。' +
+  '在回答时，如果有相关记忆，请基于记忆内容提供个性化回复。';
 
-const checkpointer = new MemorySaver();
+/** @type {import('langchain').Agent|null} 惰性创建的 agent 实例 */
+let agentInstance = null;
 
-const agent = createAgent({
-  model,
-  tools: [searchMemoryTool],
-  middleware: [
-    summarizationMiddleware({
+/**
+ * 获取（必要时创建）agent 实例
+ *
+ * 首次调用时校验并实例化 ChatDeepSeek 模型，避免模块加载阶段因缺少
+ * API Key 抛错导致整个页面脚本中断（按钮无响应）。
+ *
+ * @returns {import('langchain').Agent} 已创建的 agent 实例
+ * @throws {Error} DEEPSEEK_API_KEY 未设置时抛出中文提示
+ */
+function getAgent() {
+  if (!agentInstance) {
+    const apiKey = localStorage.getItem('DEEPSEEK_API_KEY');
+    if (!apiKey) {
+      throw new Error('DEEPSEEK_API_KEY 未设置，请先在配置页设置');
+    }
+
+    const model = new ChatDeepSeek({ model: 'deepseek-chat', apiKey });
+    const checkpointer = new MemorySaver();
+
+    agentInstance = createAgent({
       model,
-      trigger: { tokens: 128000 },
-      keep: { messages: 20 },
-    }),
-    memoryMiddleware,
-  ],
-  checkpointer,
-  systemPrompt:
-    '你是一个智能 AI 助手，拥有长期记忆能力。' +
-    '你可以使用 search_memory 工具搜索历史对话记忆，' +
-    '以记住用户之前提到过的信息。' +
-    '在回答时，如果有相关记忆，请基于记忆内容提供个性化回复。',
-});
+      tools: [searchMemoryTool],
+      middleware: [
+        summarizationMiddleware({
+          model,
+          trigger: { tokens: 128000 },
+          keep: { messages: 20 },
+        }),
+        memoryMiddleware,
+      ],
+      checkpointer,
+      systemPrompt: SYSTEM_PROMPT,
+    });
+  }
+  return agentInstance;
+}
+
+/**
+ * 默认导出的 agent 委托对象
+ *
+ * 延迟到实际调用时才创建底层 LangGraph agent；本仓库当前仅使用
+ * invoke / stream 两个方法。
+ */
+const agent = {
+  invoke: async (input, config) => getAgent().invoke(input, config),
+  stream: (input, config) => getAgent().stream(input, config),
+};
 
 export default agent;
 

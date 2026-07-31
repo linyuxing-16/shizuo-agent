@@ -98,6 +98,7 @@ const {
   normalizeTranscript,
   containsWakeWord,
   int16ToWavBase64,
+  VAD_THRESHOLD,
 } = await import('./wakeword.js');
 
 // ── 工具函数 ───────────────────────────────────────────────────────────────
@@ -130,6 +131,10 @@ describe('WAKE_WORD_SUGGESTIONS 常量', () => {
   it('应导出建议唤醒词列表', () => {
     expect(WAKE_WORD_SUGGESTIONS.length).toBeGreaterThan(0);
     expect(WAKE_WORD_SUGGESTIONS).toContain('hey jarvis');
+  });
+
+  it('应导出 VAD 能量阈值 0.01', () => {
+    expect(VAD_THRESHOLD).toBe(0.01);
   });
 });
 
@@ -281,4 +286,64 @@ describe('voiceActivate 完整流程（ASR 周期检测）', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(settled).toBe(false);
   }, 15000);
+});
+
+describe('voiceActivate 麦克风诊断', () => {
+  beforeEach(() => {
+    localStorage.setItem('MIMO_API_KEY', 'test-key');
+  });
+
+  it('onAudioLevel 回调应逐帧收到 RMS 能量', async () => {
+    const levels = [];
+    const promise = voiceActivate('你好 助手', 100, {
+      onAudioLevel: (rms) => levels.push(rms),
+    });
+
+    await vi.waitFor(() => {
+      const context = MockAudioContext.mock.results[0]?.value;
+      const processor = context?.createScriptProcessor?.mock?.results?.[0]?.value;
+      expect(processor?._onaudioprocess).toBeTruthy();
+    });
+
+    await triggerAudioProcess(0.05);
+    await triggerAudioProcess(0.001);
+
+    expect(levels.length).toBeGreaterThanOrEqual(2);
+    // 常量填充帧的 RMS 等于幅值
+    expect(levels[levels.length - 2]).toBeCloseTo(0.05, 5);
+    expect(levels[levels.length - 1]).toBeCloseTo(0.001, 5);
+
+    // 无唤醒词则 promise 保持 pending，仅挂 catch 避免未处理拒绝
+    promise.catch(() => {});
+  }, 5000);
+
+  it('静音帧不应触发任何 ASR 请求', async () => {
+    const promise = voiceActivate('你好 助手', 100);
+
+    // 超过 1s 的静音帧（每帧约 1365 样本 @16kHz，20 帧 ≈ 1.4s）
+    for (let i = 0; i < 20; i++) {
+      await triggerAudioProcess(0.001);
+    }
+
+    expect(mockAsr).not.toHaveBeenCalled();
+    promise.catch(() => {});
+  }, 5000);
+
+  it('NotFoundError 应映射为中文设备错误', async () => {
+    navigator.mediaDevices.getUserMedia.mockRejectedValueOnce(
+      Object.assign(new Error('Requested device not found'), { name: 'NotFoundError' }),
+    );
+    await expect(voiceActivate('你好 助手', 100)).rejects.toThrow(
+      '未找到可用的麦克风设备',
+    );
+  });
+
+  it('NotAllowedError 应映射为中文权限错误', async () => {
+    navigator.mediaDevices.getUserMedia.mockRejectedValueOnce(
+      Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }),
+    );
+    await expect(voiceActivate('你好 助手', 100)).rejects.toThrow(
+      '麦克风权限被拒绝',
+    );
+  });
 });

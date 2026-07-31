@@ -168,6 +168,34 @@
       white-space: nowrap;
     }
 
+    .mic-level-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .mic-level-label {
+      font-size: 12px;
+    }
+
+    .mic-level {
+      width: 90px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .mic-level-fill {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 120ms linear;
+    }
+
     .status-wave {
       display: flex;
       align-items: flex-end;
@@ -554,6 +582,7 @@
 
       .status-wave { display: none; }
       .status-text { font-size: 12px; }
+      .mic-level-wrap { display: none; }
     }
   </style>
 </head>
@@ -579,6 +608,10 @@
     <div class="status-bar">
       <div class="status-indicator idle" id="statusIndicator"></div>
       <span class="status-text" id="statusText">就绪 — 点击「开始监听」或按 Ctrl+Enter 启动</span>
+      <div class="mic-level-wrap" id="micLevelWrap" title="麦克风能量">
+        <span class="mic-level-label">🎤</span>
+        <div class="mic-level"><span class="mic-level-fill" id="micLevelFill"></span></div>
+      </div>
       <div class="status-wave" id="statusWave" style="display:none">
         <span></span><span></span><span></span><span></span><span></span>
       </div>
@@ -632,7 +665,7 @@
   <script type="module">
     // ── Imports ──────────────────────────────────────────────────────────
     import { loadOml2d } from 'oh-my-live2d';
-    import { voiceActivate } from './src/wakeword.js';
+    import { voiceActivate, VAD_THRESHOLD } from './src/wakeword.js';
     import agent, { streamAgent } from './src/agent.js';
     import { streamTts } from './src/tts.js';
     import { initAudioContext, playPcm16, stopPlayback } from './src/audioPlayer.js';
@@ -649,14 +682,15 @@
     const statusIndicator  = $('statusIndicator');
     const statusText       = $('statusText');
     const statusWave       = $('statusWave');
+    const micLevelFill     = $('micLevelFill');
     const modelProgress    = $('modelProgress');
     const mpLive2D         = $('mpLive2D');
     const live2dCanvas     = $('live2d-canvas');
     const live2dNameEl     = $('live2dName');
     const live2dStatusTip  = $('live2dStatusTip');
 
-    // ── 唤醒词初始值（localStorage 持久化） ────────────────────────────────
-    wakeWordInput.value = localStorage.getItem('WAKE_WORD') || 'hey jarvis';
+    // ── 唤醒词初始值（localStorage 持久化，默认中文） ─────────────────────
+    wakeWordInput.value = localStorage.getItem('WAKE_WORD') || '你好 助手';
 
     // ── Live2D Model Sources ─────────────────────────────────────────────
     // 模型文件来自 Live2D 官方 CubismWebSamples 仓库
@@ -700,6 +734,11 @@
     let abortController = null;
     let oml2dInstance = null;
     let live2dReady = false;
+
+    // ── 麦克风能量诊断状态 ────────────────────────────────────────────────
+    const SILENT_HINT_MS = 10000; // 连续无声超过此时长后提示
+    let lastVoiceAt = 0;
+    let silenceHintShown = false;
 
     // ── Status Helpers ───────────────────────────────────────────────────
     function setStatus(status, text) {
@@ -857,6 +896,30 @@
       }
     }
 
+    // ── 麦克风能量诊断 ──────────────────────────────────────────────────
+    function handleAudioLevel(rms) {
+      // RMS 0~1 → 百分比条（语音约 0.02~0.2，放大 400 倍便于观察）
+      const levelPct = Math.max(0, Math.min(100, Math.round(rms * 400)));
+      micLevelFill.style.width = `${levelPct}%`;
+
+      if (rms >= VAD_THRESHOLD) {
+        lastVoiceAt = Date.now();
+        if (silenceHintShown) {
+          silenceHintShown = false;
+          if (currentStatus === 'listening') {
+            setStatus('listening', '正在监听唤醒词…');
+          }
+        }
+      } else if (
+        currentStatus === 'listening' &&
+        !silenceHintShown &&
+        Date.now() - lastVoiceAt >= SILENT_HINT_MS
+      ) {
+        silenceHintShown = true;
+        setStatus('listening', '🔇 未检测到语音输入 — 请检查麦克风或系统音量');
+      }
+    }
+
     // ── Main Voice Loop ──────────────────────────────────────────────────
     async function startVoiceLoop() {
       if (isRunning) return;
@@ -866,7 +929,7 @@
       abortController = new AbortController();
       const signal = abortController.signal;
 
-      const wakeWord = wakeWordInput.value.trim() || 'hey jarvis';
+      const wakeWord = wakeWordInput.value.trim() || '你好 助手';
       localStorage.setItem('WAKE_WORD', wakeWord);
       const timeout  = parseInt(silenceTimeout.value, 10) || 2000;
 
@@ -876,10 +939,13 @@
       silenceTimeout.disabled = true;
 
       setStatus('listening', '正在监听唤醒词…');
+      lastVoiceAt = Date.now();
+      silenceHintShown = false;
+      micLevelFill.style.width = '0%';
 
       try {
         const asrResult = await Promise.race([
-          voiceActivate(wakeWord, timeout),
+          voiceActivate(wakeWord, timeout, { onAudioLevel: handleAudioLevel }),
           new Promise((_, reject) => {
             signal.addEventListener('abort', () => {
               reject(new DOMException('用户停止', 'AbortError'));
@@ -982,6 +1048,8 @@
       stopBtn.disabled = true;
       wakeWordInput.disabled = false;
       silenceTimeout.disabled = false;
+      micLevelFill.style.width = '0%';
+      silenceHintShown = false;
     }
 
     function stopVoiceLoop() {

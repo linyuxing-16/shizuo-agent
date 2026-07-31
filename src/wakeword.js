@@ -5,8 +5,8 @@ import { asr } from './asr.js';
 /** @type {number} 目标采样率（16kHz，WAV 编码与检测窗口统一使用） */
 const SAMPLE_RATE = 16000;
 
-/** @type {number} VAD 语音/静音能量阈值（RMS） */
-const VAD_THRESHOLD = 0.01;
+/** @type {number} VAD 语音/静音能量阈值（RMS），供 UI 诊断提示复用 */
+export const VAD_THRESHOLD = 0.01;
 
 /** @type {number} 唤醒词检测间隔（毫秒） */
 const DETECT_INTERVAL_MS = 1000;
@@ -199,8 +199,11 @@ export function containsWakeWord(transcript, wakeWord) {
  * 通过 ASR 周期检测唤醒词：持续录音，检测到唤醒词后继续录音，
  * 静音超时后返回包含唤醒词的完整识别结果
  *
- * @param {string} wakeWord - 唤醒词（任意短语，如 'hey jarvis'、'小助手'）
+ * @param {string} wakeWord - 唤醒词（任意短语，如 'hey jarvis'、'你好 助手'）
  * @param {number} silenceTimeoutMs - 静音超时时间（毫秒），超过此时间的连续静音将结束录音
+ * @param {Object} [callbacks] - 可选回调，用于 UI 诊断展示
+ * @param {(rms: number) => void} [callbacks.onAudioLevel] - 每帧音频能量（RMS 0~1）回调，
+ *   可用于显示麦克风音量；监听期间约每 90ms 触发一次
  * @returns {Promise<string>} ASR 返回的 JSON 字符串（含唤醒词）
  *
  * @throws {Error} 当 wakeWord 为空/无效、MIMO_API_KEY 未设置或浏览器 API 不可用时抛出
@@ -208,10 +211,12 @@ export function containsWakeWord(transcript, wakeWord) {
  * @example
  * import { voiceActivate } from './wakeword.js';
  *
- * const result = await voiceActivate('hey jarvis', 3000);
+ * const result = await voiceActivate('你好 助手', 3000, {
+ *   onAudioLevel: (rms) => console.log('能量:', rms),
+ * });
  * console.log(result);
  */
-export async function voiceActivate(wakeWord, silenceTimeoutMs) {
+export async function voiceActivate(wakeWord, silenceTimeoutMs, callbacks = {}) {
   // ── 参数校验 ──
   if (typeof wakeWord !== 'string' || !wakeWord.trim()) {
     throw new Error('唤醒词不能为空');
@@ -418,7 +423,26 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
     || globalThis.AudioContext;
   audioContext = new AC();
   const sampleRate = audioContext.sampleRate;
-  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    // 清理已创建的 AudioContext，避免资源泄漏
+    try {
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close();
+      }
+    } catch (_) { /* ignore */ }
+
+    const errName = err?.name || '';
+    const errMessage = err?.message || '';
+    if (errName === 'NotFoundError' || /requested device not found|no audio input/i.test(errMessage)) {
+      throw new Error('未找到可用的麦克风设备，请检查系统麦克风与浏览器权限设置');
+    }
+    if (errName === 'NotAllowedError' || /permission denied|permission dismissed/i.test(errMessage)) {
+      throw new Error('麦克风权限被拒绝，请在浏览器地址栏允许麦克风访问');
+    }
+    throw err;
+  }
   source = audioContext.createMediaStreamSource(micStream);
 
   processor = audioContext.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1);
@@ -430,6 +454,11 @@ export async function voiceActivate(wakeWord, silenceTimeoutMs) {
     const input = event.inputBuffer.getChannelData(0);
     const downsampled = linearResample(input, sampleRate, SAMPLE_RATE);
     const frameRms = computeRMS(downsampled);
+
+    // 回调每帧能量，供 UI 显示麦克风音量/诊断（不阻塞检测逻辑）
+    if (typeof callbacks.onAudioLevel === 'function') {
+      callbacks.onAudioLevel(frameRms);
+    }
 
     // 写入滚动缓冲（Int16）
     pushSamples(float32ToInt16(downsampled));
