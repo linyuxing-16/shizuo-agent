@@ -529,7 +529,10 @@
 
     /* ── Mobile (≤ 600px) ──────────────────────────────────────────────── */
     @media (max-width: 600px) {
-      body { padding: 8px; }
+      body {
+        padding: 8px;
+        padding-top: max(8px, env(safe-area-inset-top));
+      }
       .app { min-height: calc(100dvh - 16px); }
 
       .brand-text .subtitle { display: none; }
@@ -537,31 +540,38 @@
 
       .conversation {
         flex-direction: column;
-        position: relative;
+        gap: 10px;
       }
 
-      /* Live2D as semi-transparent background decoration */
+      /* Live2D 顶部角色展示区 */
       .live2d-panel {
-        position: absolute;
-        top: 0;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 180px;
+        position: relative;
+        top: auto;
+        left: auto;
+        transform: none;
+        width: 100%;
+        height: auto;
         min-height: 0;
-        height: 200px;
-        background: none;
-        border: none;
-        opacity: 0.13;
-        pointer-events: none;
-        z-index: 0;
-        padding: 0;
+        flex-shrink: 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        opacity: 1;
+        pointer-events: auto;
+        padding: 8px 8px 10px;
       }
 
-      .live2d-name,
-      .live2d-status-tip { display: none; }
+      .live2d-name {
+        display: block;
+        margin-top: 4px;
+      }
+
+      .live2d-status-tip {
+        display: block;
+      }
 
       #live2d-canvas {
-        height: 200px;
+        height: 170px;
         width: 100%;
         contain: layout style;
       }
@@ -571,14 +581,15 @@
       }
 
       .messages-panel {
-        z-index: 1;
-        padding-top: 8px;
+        padding: 2px 4px 2px 0;
       }
 
+      .controls { flex-wrap: wrap; }
+      .controls > label { width: 100%; flex: 1 1 100%; }
       .controls select,
       .controls input[type="text"] { width: 100%; }
       .controls .spacer { display: none; }
-      .btn { flex: 1; justify-content: center; }
+      .btn { flex: 1 1 0; justify-content: center; }
 
       .status-wave { display: none; }
       .status-text { font-size: 12px; }
