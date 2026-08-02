@@ -1,5 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// ── 可控 mock：验证 IndexedDB 不可用时的 MemorySaver 回退路径 ────────────
+const { createAgentMock, MemorySaverMock } = vi.hoisted(() => ({
+  createAgentMock: vi.fn(),
+  MemorySaverMock: class {
+    deleteThread = vi.fn(async () => {});
+  },
+}));
+
+vi.mock('langchain', () => ({
+  createAgent: createAgentMock,
+  createMiddleware: vi.fn(() => ({})),
+  summarizationMiddleware: vi.fn(() => ({})),
+  tool: vi.fn(() => ({})),
+}));
+
+vi.mock('@langchain/deepseek', () => ({
+  ChatDeepSeek: class {},
+}));
+
+vi.mock('@langchain/langgraph-checkpoint', () => ({
+  MemorySaver: MemorySaverMock,
+}));
+
+vi.mock('./indexedDbCheckpointer.js', () => ({
+  IndexedDBCheckpointer: class {
+    ready = Promise.reject(new Error('mock: IndexedDB 不可用'));
+  },
+}));
+
 // ── Mock localStorage（agent 惰性初始化后仅在调用时读取） ──────────────────
 const store = {};
 vi.stubGlobal('localStorage', {
@@ -29,8 +58,8 @@ describe('agent 惰性初始化', () => {
     );
   });
 
-  it('agent.stream 在缺少 key 时抛出中文错误', () => {
-    expect(() => agent.stream({ messages: [] }, {})).toThrow(
+  it('agent.stream 在缺少 key 时拒绝并给出中文提示', async () => {
+    await expect(agent.stream({ messages: [] }, {})).rejects.toThrow(
       'DEEPSEEK_API_KEY 未设置',
     );
   });
@@ -41,5 +70,24 @@ describe('agent 惰性初始化', () => {
       { configurable: { thread_id: 'thread-test' } },
     );
     await expect(gen.next()).rejects.toThrow('DEEPSEEK_API_KEY 未设置');
+  });
+
+  it('IndexedDB 不可用时回退到 MemorySaver，clearThread 复用同一实例', async () => {
+    store.DEEPSEEK_API_KEY = 'test-key';
+    createAgentMock.mockReturnValue({
+      invoke: async () => 'ok',
+      stream: async () => {},
+    });
+
+    await expect(
+      agent.invoke({ messages: [] }, { configurable: { thread_id: 't' } }),
+    ).resolves.toBe('ok');
+
+    expect(createAgentMock).toHaveBeenCalledTimes(1);
+    const { checkpointer } = createAgentMock.mock.calls[0][0];
+    expect(checkpointer).toBeInstanceOf(MemorySaverMock);
+
+    await agent.clearThread('t');
+    expect(checkpointer.deleteThread).toHaveBeenCalledWith('t');
   });
 });

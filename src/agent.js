@@ -1,6 +1,7 @@
 import { createAgent, summarizationMiddleware } from 'langchain';
 import { ChatDeepSeek } from '@langchain/deepseek';
 import { MemorySaver } from '@langchain/langgraph-checkpoint';
+import { IndexedDBCheckpointer } from './indexedDbCheckpointer.js';
 import { memoryMiddleware, searchMemoryTool } from './memory.js';
 
 /**
@@ -9,7 +10,8 @@ import { memoryMiddleware, searchMemoryTool } from './memory.js';
  * - 使用 DeepSeek Chat 作为底层模型
  * - 通过 searchMemoryTool 检索历史记忆
  * - 通过 memoryMiddleware 自动将对话保存到长期记忆
- * - 通过 MemorySaver checkpointer 实现短期对话记忆
+ * - 通过 IndexedDB checkpointer 持久化短期对话记忆（刷新后仍保留，
+ *   IndexedDB 不可用时自动回退到内存 MemorySaver）
  * - 通过 summarizationMiddleware 自动摘要历史消息，防止超出上下文窗口
  *
  * @example
@@ -31,8 +33,35 @@ const SYSTEM_PROMPT =
   '以记住用户之前提到过的信息。' +
   '在回答时，如果有相关记忆，请基于记忆内容提供个性化回复。';
 
+const CHECKPOINTER_DB_NAME = 'shizuo-agent-checkpoints';
+
 /** @type {import('langchain').Agent|null} 惰性创建的 agent 实例 */
 let agentInstance = null;
+
+/** @type {import('@langchain/langgraph-checkpoint').BaseCheckpointSaver|null} 当前使用的 checkpointer */
+let checkpointerInstance = null;
+
+/**
+ * 创建（必要时回退）checkpointer 实例
+ *
+ * 优先使用 IndexedDB 持久化 checkpointer；当 IndexedDB 不可用或打开失败时
+ * 回退到内存 MemorySaver，仅输出警告、不中断语音助手功能。
+ *
+ * @returns {Promise<import('@langchain/langgraph-checkpoint').BaseCheckpointSaver>} 可用的 checkpointer
+ */
+async function createCheckpointer() {
+  const checkpointer = new IndexedDBCheckpointer({ dbName: CHECKPOINTER_DB_NAME });
+  try {
+    await checkpointer.ready;
+    return checkpointer;
+  } catch (err) {
+    console.warn(
+      '[agent] IndexedDB 不可用，回退到内存 checkpointer，刷新后对话上下文将丢失:',
+      err,
+    );
+    return new MemorySaver();
+  }
+}
 
 /**
  * 获取（必要时创建）agent 实例
@@ -40,10 +69,10 @@ let agentInstance = null;
  * 首次调用时校验并实例化 ChatDeepSeek 模型，避免模块加载阶段因缺少
  * API Key 抛错导致整个页面脚本中断（按钮无响应）。
  *
- * @returns {import('langchain').Agent} 已创建的 agent 实例
+ * @returns {Promise<import('langchain').Agent>} 已创建的 agent 实例
  * @throws {Error} DEEPSEEK_API_KEY 未设置时抛出中文提示
  */
-function getAgent() {
+async function getAgent() {
   if (!agentInstance) {
     const apiKey = localStorage.getItem('DEEPSEEK_API_KEY');
     if (!apiKey) {
@@ -51,7 +80,7 @@ function getAgent() {
     }
 
     const model = new ChatDeepSeek({ model: 'deepseek-chat', apiKey });
-    const checkpointer = new MemorySaver();
+    checkpointerInstance = await createCheckpointer();
 
     agentInstance = createAgent({
       model,
@@ -64,7 +93,7 @@ function getAgent() {
         }),
         memoryMiddleware,
       ],
-      checkpointer,
+      checkpointer: checkpointerInstance,
       systemPrompt: SYSTEM_PROMPT,
     });
   }
@@ -75,11 +104,15 @@ function getAgent() {
  * 默认导出的 agent 委托对象
  *
  * 延迟到实际调用时才创建底层 LangGraph agent；本仓库当前仅使用
- * invoke / stream 两个方法。
+ * invoke / stream / clearThread 三个方法。
  */
 const agent = {
-  invoke: async (input, config) => getAgent().invoke(input, config),
-  stream: (input, config) => getAgent().stream(input, config),
+  invoke: async (input, config) => (await getAgent()).invoke(input, config),
+  stream: async (input, config) => (await getAgent()).stream(input, config),
+  clearThread: async (threadId) => {
+    checkpointerInstance ??= await createCheckpointer();
+    await checkpointerInstance.deleteThread(threadId);
+  },
 };
 
 export default agent;

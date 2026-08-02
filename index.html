@@ -1076,6 +1076,10 @@
     // ── Clear Chat ───────────────────────────────────────────────────────
     function clearChat() {
       messagesPanel.innerHTML = '';
+      // 同步清除 IndexedDB 中该线程的持久化对话上下文
+      agent.clearThread(THREAD_ID).catch((err) => {
+        console.warn('清除持久化对话上下文失败:', err);
+      });
     }
 
     // ── Keyboard Shortcut ────────────────────────────────────────────────

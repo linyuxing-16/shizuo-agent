@@ -22,7 +22,8 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 
 ### 关键模块
 
-- **`src/agent.js`** — LangGraph agent，使用 `ChatDeepSeek` + `MemorySaver`（checkpointer），流式输出通过 `streamMode: 'messages'` + `metadata?.node === 'agent'` 过滤
+- **`src/agent.js`** — LangGraph agent，使用 `ChatDeepSeek` + IndexedDB 持久化 checkpointer，流式输出通过 `streamMode: 'messages'` + `metadata?.node === 'agent'` 过滤
+- **`src/indexedDbCheckpointer.js`** — 基于 IndexedDB 的 `BaseCheckpointSaver` 实现（数据库 `shizuo-agent-checkpoints`），对话上下文刷新后仍保留；IndexedDB 不可用时 `agent.js` 自动回退到内存 `MemorySaver`
 - **`src/asr.js`** — MIMO ASR API（OpenAI 兼容客户端），返回含说话人标签的文本
 - **`src/tts.js`** — DashScope Qwen3-TTS-Flash API（`qwen3-tts-flash`，音色 Roy 闽南语）；`tts()` 非流式（聚合 PCM16），`streamTts()` 流式（SSE，24kHz 单声道 pcm16，yield `ArrayBuffer`）
 - **`src/wakeword.js`** — ASR 周期检测唤醒词 + VAD（RMS 阈值 0.01），`voiceActivate(wakeWord, silenceTimeoutMs)` 返回 ASR 结果 JSON 字符串（含唤醒词）

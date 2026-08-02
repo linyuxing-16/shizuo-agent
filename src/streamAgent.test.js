@@ -22,6 +22,12 @@ vi.mock('@langchain/langgraph-checkpoint', () => ({
   MemorySaver: class {},
 }));
 
+vi.mock('./indexedDbCheckpointer.js', () => ({
+  IndexedDBCheckpointer: class {
+    ready = Promise.resolve();
+  },
+}));
+
 vi.mock('./memory.js', () => ({
   memoryMiddleware: {},
   searchMemoryTool: {},
