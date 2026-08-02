@@ -5,7 +5,7 @@
 Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → ASR 识别 → LLM 推理 → TTS 语音合成 → Live2D 角色展示的完整语音交互闭环。
 
 ```
-唤醒词检测 + 指令识别（ASR 周期检测）→ AI 推理（DeepSeek + Mem0 记忆）→ TTS（MIMO API）→ PCM16 播放（Web Audio API）
+唤醒词检测 + 指令识别（ASR 周期检测）→ AI 推理（DeepSeek + Mem0 记忆）→ TTS（Qwen3-TTS-Flash API）→ PCM16 播放（Web Audio API）
 ```
 
 ## 构建与测试
@@ -24,7 +24,7 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 
 - **`src/agent.js`** — LangGraph agent，使用 `ChatDeepSeek` + `MemorySaver`（checkpointer），流式输出通过 `streamMode: 'messages'` + `metadata?.node === 'agent'` 过滤
 - **`src/asr.js`** — MIMO ASR API（OpenAI 兼容客户端），返回含说话人标签的文本
-- **`src/tts.js`** — MIMO TTS API，默认闽南语合成；`tts()` 非流式，`streamTts()` 流式（默认 `pcm16` 格式，yield `ArrayBuffer`）
+- **`src/tts.js`** — DashScope Qwen3-TTS-Flash API（`qwen3-tts-flash`，音色 Roy 闽南语）；`tts()` 非流式（聚合 PCM16），`streamTts()` 流式（SSE，24kHz 单声道 pcm16，yield `ArrayBuffer`）
 - **`src/wakeword.js`** — ASR 周期检测唤醒词 + VAD（RMS 阈值 0.01），`voiceActivate(wakeWord, silenceTimeoutMs)` 返回 ASR 结果 JSON 字符串（含唤醒词）
 - **`src/audioPlayer.js`** — 纯 Web Audio API，`playPcm16(Int16Array)` 24kHz 播放
 - **`src/memory.js`** — Mem0 长期记忆；`memoryMiddleware`（`after_agent` 中间件）自动保存对话，`searchMemoryTool`（名称 `search_memory`）供 agent 使用
@@ -86,11 +86,10 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 |-----|------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek Chat API Key | ✅ |
 | `MEM0_API_KEY` | Mem0 记忆服务 API Key | ✅ |
-| `MIMO_API_KEY` | MIMO ASR/TTS API Key | ✅ |
+| `MIMO_API_KEY` | MIMO ASR API Key | ✅ |
 | `MEM0_AGENT_ID` | Mem0 Agent ID（默认 `default-agent`） | ❌ |
 | `MEM0_USER_ID` | Mem0 User ID（默认 `default-user`） | ❌ |
-| `MIMO_TTS_DIALECT` | TTS 方言（默认 `闽南语`） | ❌ |
-| `MIMO_TTS_VOICE` | TTS 音色（默认 `Chloe`） | ❌ |
+| `DASHSCOPE_API_KEY` | 阿里云百炼 API Key（Qwen3 TTS） | ✅ |
 | `WAKE_WORD` | 自定义唤醒词（默认 `你好 助手`） | ❌ |
 
 ## 部署

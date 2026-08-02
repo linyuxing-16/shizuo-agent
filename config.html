@@ -311,33 +311,23 @@
           autocomplete="off"
         />
         <div class="status" id="mimoStatus"></div>
-        <div class="hint">用于 ASR 语音识别服务，需在 <code>localStorage</code> 中配置 <code>MIMO_API_KEY</code></div>
+        <div class="hint">仅用于 ASR 语音识别服务，需在 <code>localStorage</code> 中配置 <code>MIMO_API_KEY</code></div>
       </div>
     </div>
 
-    <!-- MIMO TTS 语音合成配置 -->
+    <!-- Qwen3 TTS 语音合成配置 -->
     <div class="card">
-      <div class="card-title">🔊 MIMO 语音合成 (TTS)</div>
+      <div class="card-title">🔊 Qwen3 语音合成 (TTS)</div>
       <div class="field">
-        <label>方言</label>
-        <select id="ttsDialect">
-          <option value="闽南语">闽南语</option>
-          <option value="东北话">东北话</option>
-          <option value="四川话">四川话</option>
-          <option value="河南话">河南话</option>
-          <option value="粤语">粤语</option>
-          <option value="">无（标准普通话）</option>
-        </select>
-        <div class="hint">选择 AI 回复时使用的方言口音</div>
-      </div>
-      <div class="divider"></div>
-      <div class="field">
-        <label>音色</label>
-        <select id="ttsVoice">
-          <option value="Chloe">Chloe — 清亮女声（推荐）</option>
-          <option value="mimo_default">mimo_default — 默认音色</option>
-        </select>
-        <div class="hint">选择语音合成的音色</div>
+        <label>API Key <span class="required">*</span></label>
+        <input
+          type="password"
+          id="dashscopeApiKey"
+          placeholder="sk-..."
+          autocomplete="off"
+        />
+        <div class="status" id="dashscopeStatus"></div>
+        <div class="hint">阿里云百炼 API Key（qwen3-tts-flash，音色 Roy 闽南语），需在 <code>localStorage</code> 中配置 <code>DASHSCOPE_API_KEY</code></div>
       </div>
     </div>
 
@@ -388,13 +378,13 @@
     const agentIdInput    = $('mem0AgentId');
     const userIdInput     = $('mem0UserId');
     const mimoInput       = $('mimoApiKey');
-    const ttsDialectSelect = $('ttsDialect');
-    const ttsVoiceSelect   = $('ttsVoice');
+    const dashscopeInput  = $('dashscopeApiKey');
     const live2dModelSelect = $('live2dModel');
     const live2dNameInput = $('live2dName');
     const deepseekStatus  = $('deepseekStatus');
     const mem0Status      = $('mem0Status');
     const mimoStatus      = $('mimoStatus');
+    const dashscopeStatus = $('dashscopeStatus');
     const saveBtn         = $('saveBtn');
     const clearBtn        = $('clearBtn');
     const toastEl         = $('toast');
@@ -416,8 +406,7 @@
       agentIdInput.value  = localStorage.getItem('MEM0_AGENT_ID') || '';
       userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
       mimoInput.value     = localStorage.getItem('MIMO_API_KEY') || '';
-      ttsDialectSelect.value = localStorage.getItem('MIMO_TTS_DIALECT') || '闽南语';
-      ttsVoiceSelect.value   = localStorage.getItem('MIMO_TTS_VOICE') || 'Chloe';
+      dashscopeInput.value  = localStorage.getItem('DASHSCOPE_API_KEY') || '';
       live2dModelSelect.value = localStorage.getItem('LIVE2D_MODEL') || 'hiyori';
       live2dNameInput.value   = localStorage.getItem('LIVE2D_NAME') || '';
       updateStatus();
@@ -439,6 +428,11 @@
         ? `✓ 已配置 (${maskKey(mimoInput.value)})`
         : '○ 未配置';
       mimoStatus.className = `status ${mimoInput.value ? 'saved' : 'empty'}`;
+
+      dashscopeStatus.textContent = dashscopeInput.value
+        ? `✓ 已配置 (${maskKey(dashscopeInput.value)})`
+        : '○ 未配置';
+      dashscopeStatus.className = `status ${dashscopeInput.value ? 'saved' : 'empty'}`;
     }
 
     function maskKey(key) {
@@ -453,6 +447,7 @@
       const agentId   = agentIdInput.value.trim() || 'default-agent';
       const userId    = userIdInput.value.trim() || 'default-user';
       const mimoKey   = mimoInput.value.trim();
+      const dashscopeKey = dashscopeInput.value.trim();
 
       if (!deepseekKey) {
         showToast('请填写 DeepSeek API Key', 'error');
@@ -472,13 +467,18 @@
         return;
       }
 
+      if (!dashscopeKey) {
+        showToast('请填写 DashScope API Key', 'error');
+        dashscopeInput.focus();
+        return;
+      }
+
       localStorage.setItem('DEEPSEEK_API_KEY', deepseekKey);
       localStorage.setItem('MEM0_API_KEY', mem0Key);
       localStorage.setItem('MEM0_AGENT_ID', agentId);
       localStorage.setItem('MEM0_USER_ID', userId);
       localStorage.setItem('MIMO_API_KEY', mimoKey);
-      localStorage.setItem('MIMO_TTS_DIALECT', ttsDialectSelect.value);
-      localStorage.setItem('MIMO_TTS_VOICE', ttsVoiceSelect.value);
+      localStorage.setItem('DASHSCOPE_API_KEY', dashscopeKey);
       localStorage.setItem('LIVE2D_MODEL', live2dModelSelect.value);
       localStorage.setItem('LIVE2D_NAME', live2dNameInput.value.trim() || 'Shizuo');
 
@@ -495,6 +495,7 @@
       localStorage.removeItem('MIMO_API_KEY');
       localStorage.removeItem('MIMO_TTS_DIALECT');
       localStorage.removeItem('MIMO_TTS_VOICE');
+      localStorage.removeItem('DASHSCOPE_API_KEY');
       localStorage.removeItem('LIVE2D_MODEL');
       localStorage.removeItem('LIVE2D_NAME');
 

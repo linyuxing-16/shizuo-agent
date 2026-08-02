@@ -12,32 +12,9 @@ const localStorageMock = (() => {
 })();
 vi.stubGlobal('localStorage', localStorageMock);
 
-// ── Mock openai ─────────────────────────────────────────────────────────────
-const mockCreate = vi.fn();
-
-/**
- * 创建一个模拟的异步可迭代流
- * @param {Array} chunks
- * @returns {AsyncIterable}
- */
-async function* createMockStream(chunks) {
-  for (const chunk of chunks) {
-    yield chunk;
-  }
-}
-
-vi.mock('openai', () => {
-  const MockOpenAI = vi.fn(function () {
-    return {
-      chat: {
-        completions: {
-          create: mockCreate,
-        },
-      },
-    };
-  });
-  return { default: MockOpenAI };
-});
+// ── Mock fetch ─────────────────────────────────────────────────────────────
+const fetchMock = vi.fn();
+vi.stubGlobal('fetch', fetchMock);
 
 // ── Import module under test ────────────────────────────────────────────────
 const { tts, streamTts } = await import('./tts.js');
@@ -57,57 +34,78 @@ function createMockPcmBase64() {
 }
 
 /**
- * 创建模拟的 TTS 非流式响应
+ * 创建模拟的流式 SSE 事件
+ *
+ * @param {Object} options - 事件字段
+ * @param {string|null} options.data - audio.data 值（base64）
+ * @param {string|null} [options.finishReason='null'] - finish_reason 值
+ * @param {number} [options.statusCode=200] - status_code 值
+ * @param {string} [options.message=''] - message 值
+ * @param {string} [options.code=''] - code 值
+ * @returns {Object} DashScope SSE 事件对象
  */
-function createMockTtsResponse(base64Data) {
+function createSseEvent({
+  data,
+  finishReason = null,
+  statusCode = 200,
+  message = '',
+  code = '',
+}) {
   return {
-    id: 'chatcmpl-tts-xxx',
-    object: 'chat.completion',
-    created: 1700000000,
-    model: 'mimo-v2.5-tts',
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: '',
-          audio: {
-            id: 'aud_xxx',
-            data: base64Data,
-            expires_at: 1800000000,
-            transcript: '测试文本',
-          },
-        },
-        finish_reason: 'stop',
+    status_code: statusCode,
+    request_id: 'req_xxx',
+    code,
+    message,
+    output: {
+      text: null,
+      finish_reason: finishReason,
+      choices: null,
+      audio: {
+        data: data ?? '',
+        url: finishReason === 'stop' ? 'http://mock.oss.wav' : '',
+        id: 'audio_xxx',
+        expires_at: 1800000000,
       },
-    ],
-    usage: { total_tokens: 50, prompt_tokens: 10, completion_tokens: 40 },
+    },
+    usage: { input_tokens: 0, output_tokens: 0, characters: 10 },
   };
 }
 
 /**
- * 创建模拟的流式 TTS chunk
+ * 创建模拟的 SSE fetch 响应
+ *
+ * @param {Array<string>} sseChunks - 原始 SSE 文本块（可切分为多段模拟分块读取）
+ * @param {Object} [options] - 响应选项
+ * @param {boolean} [options.ok=true] - 是否成功响应
+ * @param {number} [options.status=200] - HTTP 状态码
+ * @returns {Object} 模拟 Response 对象
  */
-function createMockStreamChunk(base64Data) {
-  return {
-    id: 'chatcmpl-tts-xxx',
-    object: 'chat.completion.chunk',
-    created: 1700000000,
-    model: 'mimo-v2.5-tts',
-    choices: [
-      {
-        index: 0,
-        delta: {
-          audio: {
-            id: 'aud_xxx',
-            data: base64Data,
-            expires_at: 1800000000,
-          },
-        },
-        finish_reason: null,
-      },
-    ],
+function createSseResponse(sseChunks, { ok = true, status = 200 } = {}) {
+  const encoder = new TextEncoder();
+  const byteChunks = sseChunks.map((chunk) => encoder.encode(chunk));
+  let index = 0;
+  const reader = {
+    read: async () => {
+      if (index < byteChunks.length) {
+        return { done: false, value: byteChunks[index++] };
+      }
+      return { done: true, value: undefined };
+    },
+    releaseLock: vi.fn(),
   };
+  return {
+    ok,
+    status,
+    body: { getReader: () => reader },
+    json: async () => ({ message: '模拟错误信息' }),
+  };
+}
+
+/**
+ * 将事件数组序列化为 SSE 文本
+ */
+function serializeSse(events) {
+  return events.map((event) => `data:${JSON.stringify(event)}\n\n`).join('');
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -116,145 +114,19 @@ beforeEach(() => {
   localStorageMock.clear();
 });
 
-describe('tts 函数（非流式）', () => {
-  it('应从 localStorage 读取配置并调用 MIMO TTS API', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    localStorage.setItem('MIMO_TTS_DIALECT', '闽南语');
-    localStorage.setItem('MIMO_TTS_VOICE', 'Chloe');
-
-    const mockPcmData = createMockPcmBase64();
-    mockCreate.mockResolvedValue(createMockTtsResponse(mockPcmData));
-
-    const result = await tts('今天天气真好');
-
-    // 验证 OpenAI 客户端使用正确的配置
-    const OpenAI = (await import('openai')).default;
-    expect(OpenAI).toHaveBeenCalledWith({
-      apiKey: 'test-mimo-key',
-      baseURL: 'https://api.xiaomimimo.com/v1',
-      dangerouslyAllowBrowser: true,
-    });
-
-    // 验证 API 调用参数（应自动添加方言标签）
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-    expect(mockCreate).toHaveBeenCalledWith({
-      model: 'mimo-v2.5-tts',
-      messages: [
-        {
-          role: 'assistant',
-          content: '(闽南语)今天天气真好',
-        },
-      ],
-      audio: {
-        format: 'wav',
-        voice: 'Chloe',
-      },
-    });
-
-    // 验证返回 ArrayBuffer
-    expect(result).toBeInstanceOf(ArrayBuffer);
-    const resultSamples = new Int16Array(result);
-    expect(resultSamples[0]).toBe(0);
-    expect(resultSamples[1]).toBe(1000);
-  });
-
-  it('当 MIMO_API_KEY 未设置时应抛出错误', async () => {
-    await expect(tts('测试')).rejects.toThrow('MIMO_API_KEY 未设置');
-  });
-
-  it('应使用默认方言（闽南语）和音色（Chloe）', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    mockCreate.mockResolvedValue(createMockTtsResponse(createMockPcmBase64()));
-
-    await tts('测试文本');
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          {
-            role: 'assistant',
-            content: '(闽南语)测试文本',
-          },
-        ],
-        audio: expect.objectContaining({
-          format: 'wav',
-          voice: 'Chloe',
-        }),
-      }),
-    );
-  });
-
-  it('应支持自定义方言和音色参数覆盖默认值', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    mockCreate.mockResolvedValue(createMockTtsResponse(createMockPcmBase64()));
-
-    await tts('测试文本', { dialect: '粤语', voice: 'mimo_default', format: 'pcm16' });
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          {
-            role: 'assistant',
-            content: '(粤语)测试文本',
-          },
-        ],
-        audio: {
-          format: 'pcm16',
-          voice: 'mimo_default',
-        },
-      }),
-    );
-  });
-
-  it('不传方言时应不添加方言标签', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    mockCreate.mockResolvedValue(createMockTtsResponse(createMockPcmBase64()));
-
-    await tts('测试文本', { dialect: '' });
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          {
-            role: 'assistant',
-            content: '测试文本',
-          },
-        ],
-      }),
-    );
-  });
-
-  it('响应中缺少音频数据时应抛出错误', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    mockCreate.mockResolvedValue({
-      id: 'chatcmpl-xxx',
-      choices: [{ message: { role: 'assistant', content: '', audio: null } }],
-    });
-
-    await expect(tts('测试')).rejects.toThrow('TTS 响应中未包含音频数据');
-  });
-});
-
 describe('streamTts 函数（流式）', () => {
-  it('应流式产出 pcm16 音频块', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    localStorage.setItem('MIMO_TTS_DIALECT', '闽南语');
-    localStorage.setItem('MIMO_TTS_VOICE', 'Chloe');
+  it('应从 localStorage 读取配置并调用 DashScope API 流式合成', async () => {
+    localStorage.setItem('DASHSCOPE_API_KEY', 'test-dashscope-key');
 
     const chunk1Data = createMockPcmBase64();
     const chunk2Data = createMockPcmBase64();
-
-    mockCreate.mockResolvedValue(
-      createMockStream([
-        createMockStreamChunk(chunk1Data),
-        createMockStreamChunk(chunk2Data),
-        {
-          id: 'chatcmpl-tts-xxx',
-          object: 'chat.completion.chunk',
-          created: 1700000000,
-          model: 'mimo-v2.5-tts',
-          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-        },
+    fetchMock.mockResolvedValue(
+      createSseResponse([
+        serializeSse([
+          createSseEvent({ data: chunk1Data }),
+          createSseEvent({ data: chunk2Data }),
+          createSseEvent({ data: null, finishReason: 'stop' }),
+        ]),
       ]),
     );
 
@@ -263,46 +135,52 @@ describe('streamTts 函数（流式）', () => {
       collected.push(chunk);
     }
 
-    // 验证 API 调用参数
-    expect(mockCreate).toHaveBeenCalledWith({
-      model: 'mimo-v2.5-tts',
-      messages: [
-        {
-          role: 'assistant',
-          content: '(闽南语)今天天气真好',
-        },
-      ],
-      audio: {
-        format: 'pcm16',
-        voice: 'Chloe',
+    // 验证请求地址、请求头和请求体
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+    );
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer test-dashscope-key',
+      'X-DashScope-SSE': 'enable',
+    });
+    expect(JSON.parse(init.body)).toEqual({
+      model: 'qwen3-tts-flash',
+      input: {
+        text: '今天天气真好',
+        voice: 'Roy',
+        language_type: 'Chinese',
       },
-      stream: true,
     });
 
-    // 验证收集到 2 个音频块
+    // 验证收集到 2 个音频块且内容正确
     expect(collected).toHaveLength(2);
     expect(collected[0]).toBeInstanceOf(ArrayBuffer);
     expect(collected[1]).toBeInstanceOf(ArrayBuffer);
-
-    // 验证音频数据内容
     const samples1 = new Int16Array(collected[0]);
     expect(samples1[0]).toBe(0);
     expect(samples1[1]).toBe(1000);
   });
 
-  it('当 MIMO_API_KEY 未设置时应抛出错误', async () => {
+  it('当 DASHSCOPE_API_KEY 未设置时应抛出错误', async () => {
     const iter = streamTts('测试');
-    await expect(iter.next()).rejects.toThrow('MIMO_API_KEY 未设置');
+    await expect(iter.next()).rejects.toThrow('DASHSCOPE_API_KEY 未设置');
   });
 
-  it('应跳过不含音频数据的 chunk', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    mockCreate.mockResolvedValue(
-      createMockStream([
-        { id: 'x', choices: [{ index: 0, delta: {}, finish_reason: null }] },
-        { id: 'y', choices: [] },
-        createMockStreamChunk(createMockPcmBase64()),
-        { id: 'z', choices: [{ index: 0, delta: { audio: null }, finish_reason: null }] },
+  it('应跳过不含音频数据的 chunk 并在 stop 时结束', async () => {
+    localStorage.setItem('DASHSCOPE_API_KEY', 'test-dashscope-key');
+    fetchMock.mockResolvedValue(
+      createSseResponse([
+        serializeSse([
+          createSseEvent({ data: null }),
+          createSseEvent({ data: '' }),
+          createSseEvent({ data: createMockPcmBase64() }),
+          createSseEvent({ data: null, finishReason: 'stop' }),
+          createSseEvent({ data: createMockPcmBase64() }),
+        ]),
       ]),
     );
 
@@ -311,31 +189,89 @@ describe('streamTts 函数（流式）', () => {
       collected.push(chunk);
     }
 
-    // 只有第3个 chunk 包含有效音频
+    // stop 之后的事件不再处理，只有第3个 chunk 包含有效音频
     expect(collected).toHaveLength(1);
   });
 
-  it('应支持自定义流式参数', async () => {
-    localStorage.setItem('MIMO_API_KEY', 'test-mimo-key');
-    mockCreate.mockResolvedValue(createMockStream([]));
+  it('应正确处理跨分块读取的 SSE 事件', async () => {
+    localStorage.setItem('DASHSCOPE_API_KEY', 'test-dashscope-key');
 
-    const iter = streamTts('测试', { dialect: '东北话', voice: 'mimo_default' });
-    await iter.next();
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: [
-          {
-            role: 'assistant',
-            content: '(东北话)测试',
-          },
-        ],
-        audio: {
-          format: 'pcm16',
-          voice: 'mimo_default',
-        },
-        stream: true,
-      }),
+    const sseText = serializeSse([
+      createSseEvent({ data: createMockPcmBase64() }),
+      createSseEvent({ data: null, finishReason: 'stop' }),
+    ]);
+    // 在中间位置切分为两段，模拟网络分块
+    const splitAt = Math.floor(sseText.length / 2);
+    fetchMock.mockResolvedValue(
+      createSseResponse([sseText.slice(0, splitAt), sseText.slice(splitAt)]),
     );
+
+    const collected = [];
+    for await (const chunk of streamTts('测试')) {
+      collected.push(chunk);
+    }
+
+    expect(collected).toHaveLength(1);
+  });
+
+  it('HTTP 非 2xx 时应抛出错误并携带服务端消息', async () => {
+    localStorage.setItem('DASHSCOPE_API_KEY', 'test-dashscope-key');
+    fetchMock.mockResolvedValue(createSseResponse([], { ok: false, status: 500 }));
+
+    const iter = streamTts('测试');
+    await expect(iter.next()).rejects.toThrow('TTS 请求失败：模拟错误信息');
+  });
+
+  it('SSE 事件中 status_code 非 200 时应抛出错误', async () => {
+    localStorage.setItem('DASHSCOPE_API_KEY', 'test-dashscope-key');
+    fetchMock.mockResolvedValue(
+      createSseResponse([
+        serializeSse([createSseEvent({ data: null, statusCode: 400, message: '参数错误' })]),
+      ]),
+    );
+
+    const iter = streamTts('测试');
+    await expect(iter.next()).rejects.toThrow('TTS 请求失败：参数错误');
+  });
+
+  it('响应缺少 body 时应抛出错误', async () => {
+    localStorage.setItem('DASHSCOPE_API_KEY', 'test-dashscope-key');
+    fetchMock.mockResolvedValue({ ok: true, body: null });
+
+    const iter = streamTts('测试');
+    await expect(iter.next()).rejects.toThrow('TTS 响应中未包含音频数据');
+  });
+});
+
+describe('tts 函数（非流式）', () => {
+  it('应将所有流式 chunk 聚合为单个 ArrayBuffer', async () => {
+    localStorage.setItem('DASHSCOPE_API_KEY', 'test-dashscope-key');
+
+    const chunk1Data = createMockPcmBase64();
+    const chunk2Data = createMockPcmBase64();
+    fetchMock.mockResolvedValue(
+      createSseResponse([
+        serializeSse([
+          createSseEvent({ data: chunk1Data }),
+          createSseEvent({ data: chunk2Data }),
+          createSseEvent({ data: null, finishReason: 'stop' }),
+        ]),
+      ]),
+    );
+
+    const result = await tts('今天天气真好');
+
+    expect(result).toBeInstanceOf(ArrayBuffer);
+    expect(result.byteLength).toBe(32); // 2 个 chunk，每个 16 字节
+    const samples = new Int16Array(result);
+    expect(samples).toHaveLength(16);
+    expect(samples[0]).toBe(0);
+    expect(samples[1]).toBe(1000);
+    expect(samples[8]).toBe(0);
+    expect(samples[9]).toBe(1000);
+  });
+
+  it('当 DASHSCOPE_API_KEY 未设置时应抛出错误', async () => {
+    await expect(tts('测试')).rejects.toThrow('DASHSCOPE_API_KEY 未设置');
   });
 });
