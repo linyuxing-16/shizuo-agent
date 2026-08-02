@@ -88,7 +88,8 @@ export default agent;
  * 流式调用 agent，逐块返回 AI 回复内容
  *
  * 使用 LangGraph 的 streamMode: 'messages' 实现 token 级别的流式输出。
- * 每次 yield 一个文本片段，调用方可以实时追加到 UI。
+ * 每个事件为 [message, metadata] 二元组，仅过滤 agent 节点（model_request）
+ * 且有文本内容的消息，逐个 yield 文本片段，调用方可以实时追加到 UI。
  *
  * @param {import('langchain').BaseMessage[]} messages - 输入消息列表
  * @param {object} config - 配置对象（需包含 configurable.thread_id）
@@ -110,11 +111,9 @@ export async function* streamAgent(messages, config) {
     { ...config, streamMode: 'messages' },
   );
 
-  for await (const event of stream) {
-    const [, mode, payload] = event;
-    if (mode !== 'messages') continue;
-    const [message, metadata] = payload;
-    if (metadata?.node === 'agent' && message?.content) {
+  for await (const [message, metadata] of stream) {
+    // langchain 1.5.x 的 ReactAgent 中，LLM 节点名为 model_request（旧版本为 agent）
+    if (metadata?.langgraph_node === 'model_request' && message?.content) {
       yield message.content;
     }
   }
