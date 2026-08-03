@@ -748,6 +748,7 @@
 
     // ── 麦克风能量诊断状态 ────────────────────────────────────────────────
     const SILENT_HINT_MS = 10000; // 连续无声超过此时长后提示
+    const ROUND_COOLDOWN_MS = 400; // TTS 播放结束到重新监听前的冷却，避免扬声器余音触发 ASR
     let lastVoiceAt = 0;
     let silenceHintShown = false;
 
@@ -955,89 +956,101 @@
       micLevelFill.style.width = '0%';
 
       try {
-        const asrResult = await Promise.race([
-          voiceActivate(wakeWord, timeout, { onAudioLevel: handleAudioLevel }),
-          new Promise((_, reject) => {
-            signal.addEventListener('abort', () => {
-              reject(new DOMException('用户停止', 'AbortError'));
-            });
-          }),
-        ]);
-
-        if (signal.aborted) return;
-
-        setStatus('processing', '语音识别完成，正在解析…');
-
-        let transcript = '';
-        try {
-          const parsed = typeof asrResult === 'string' ? JSON.parse(asrResult) : asrResult;
-          transcript = parsed.choices?.[0]?.message?.content || '';
-        } catch {
-          transcript = typeof asrResult === 'string' ? asrResult : '';
+        // 本轮结束，准备下一轮监听（空识别与正常完成共用）
+        function resetForNextRound() {
+          lastVoiceAt = Date.now();
+          silenceHintShown = false;
+          micLevelFill.style.width = '0%';
+          setStatus('listening', '持续监听中，说出唤醒词开始下一轮');
         }
 
-        if (!transcript.trim()) {
-          addMessage('error', '未检测到语音内容，请重试。');
-          setStatus('idle', '未检测到语音内容');
-          finishLoop();
-          return;
-        }
+        // ── 多轮免点击循环：每轮走完识别→AI→TTS 后回到唤醒监听 ──
+        while (!signal.aborted) {
+          const asrResult = await Promise.race([
+            voiceActivate(wakeWord, timeout, { onAudioLevel: handleAudioLevel }),
+            new Promise((_, reject) => {
+              signal.addEventListener('abort', () => {
+                reject(new DOMException('用户停止', 'AbortError'));
+              });
+            }),
+          ]);
 
-        addMessage('user', transcript);
-        setStatus('thinking', 'AI 正在思考…');
+          if (signal.aborted) return;
 
-        // 创建空的消息气泡，后续流式填充
-        const msgDiv = document.createElement('div');
-        msgDiv.className = 'msg assistant';
-        msgDiv.innerHTML = `
-          <div class="msg-avatar">🤖</div>
-          <div>
-            <span class="msg-label">${live2dNameEl.textContent}</span>
-            <div class="msg-bubble"></div>
-          </div>
-        `;
-        messagesPanel.appendChild(msgDiv);
-        scrollToBottom();
-        const bubbleEl = msgDiv.querySelector('.msg-bubble');
+          setStatus('processing', '语音识别完成，正在解析…');
 
-        let aiContent = '';
-        try {
-          for await (const chunk of streamAgent(
-            [{ role: 'user', content: transcript }],
-            { configurable: { thread_id: THREAD_ID } },
-          )) {
-            aiContent += chunk;
-            bubbleEl.textContent = aiContent;
-            scrollToBottom();
-          }
-
-          if (!aiContent.trim()) {
-            bubbleEl.textContent = '抱歉，我没有理解您的意思。';
-          }
-        } catch (err) {
-          bubbleEl.textContent = `请求失败：${err.message}`;
-        }
-
-        removeThinking();
-
-        // ── TTS 语音合成 ────────────────────────────────────────────────
-        if (aiContent.trim() && !signal.aborted) {
-          setStatus('speaking', '正在合成闽南语语音…');
+          let transcript = '';
           try {
-            initAudioContext();
-            for await (const audioChunk of streamTts(aiContent)) {
-              if (signal.aborted) break;
-              playPcm16(new Int16Array(audioChunk));
+            const parsed = typeof asrResult === 'string' ? JSON.parse(asrResult) : asrResult;
+            transcript = parsed.choices?.[0]?.message?.content || '';
+          } catch {
+            transcript = typeof asrResult === 'string' ? asrResult : '';
+          }
+
+          if (!transcript.trim()) {
+            addMessage('error', '未检测到语音内容，请重试。');
+            resetForNextRound();
+            continue;
+          }
+
+          addMessage('user', transcript);
+          setStatus('thinking', 'AI 正在思考…');
+
+          // 创建空的消息气泡，后续流式填充
+          const msgDiv = document.createElement('div');
+          msgDiv.className = 'msg assistant';
+          msgDiv.innerHTML = `
+            <div class="msg-avatar">🤖</div>
+            <div>
+              <span class="msg-label">${live2dNameEl.textContent}</span>
+              <div class="msg-bubble"></div>
+            </div>
+          `;
+          messagesPanel.appendChild(msgDiv);
+          scrollToBottom();
+          const bubbleEl = msgDiv.querySelector('.msg-bubble');
+
+          let aiContent = '';
+          try {
+            for await (const chunk of streamAgent(
+              [{ role: 'user', content: transcript }],
+              { configurable: { thread_id: THREAD_ID } },
+            )) {
+              aiContent += chunk;
+              bubbleEl.textContent = aiContent;
+              scrollToBottom();
+            }
+
+            if (!aiContent.trim()) {
+              bubbleEl.textContent = '抱歉，我没有理解您的意思。';
             }
           } catch (err) {
-            console.error('TTS 播放失败:', err);
+            bubbleEl.textContent = `请求失败：${err.message}`;
           }
-        }
 
-        if (!signal.aborted) {
-          setStatus('idle', '就绪 — 唤醒词激活后自动开始下一轮对话');
-        }
+          removeThinking();
 
+          // ── TTS 语音合成 ──────────────────────────────────────────────
+          if (aiContent.trim() && !signal.aborted) {
+            setStatus('speaking', '正在合成闽南语语音…');
+            try {
+              initAudioContext();
+              for await (const audioChunk of streamTts(aiContent)) {
+                if (signal.aborted) break;
+                playPcm16(new Int16Array(audioChunk));
+              }
+            } catch (err) {
+              console.error('TTS 播放失败:', err);
+            }
+          }
+
+          // ── 本轮结束：等待扬声器余音消散后回到唤醒监听 ──
+          if (signal.aborted) return;
+          await new Promise((resolve) => setTimeout(resolve, ROUND_COOLDOWN_MS));
+          if (signal.aborted) return;
+
+          resetForNextRound();
+        }
       } catch (err) {
         if (err.name === 'AbortError') {
           addMessage('assistant', '⏸ 已停止监听。');
