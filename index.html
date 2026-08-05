@@ -552,40 +552,48 @@
         gap: 10px;
       }
 
-      /* Live2D 顶部角色展示区 */
+      /* Live2D 全屏角色背景：面板铺满视口，角色放大居中，UI 浮在其上 */
       .live2d-panel {
-        position: relative;
-        top: auto;
-        left: auto;
-        transform: none;
-        width: 100%;
-        height: auto;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
         min-height: 0;
-        flex-shrink: 0;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: 0;
         opacity: 1;
-        pointer-events: auto;
-        padding: 8px 8px 10px;
+        pointer-events: none;
+        z-index: 0;
+        align-items: center;
+        justify-content: center;
       }
 
-      .live2d-name {
-        display: block;
-        margin-top: 4px;
-      }
-
+      .live2d-name,
       .live2d-status-tip {
-        display: block;
+        display: none;
       }
 
       #live2d-canvas {
-        height: 170px;
+        height: 100vh;
+        height: 100dvh;
         width: 100%;
         contain: layout style;
         display: flex;
         align-items: center;
         justify-content: center;
+      }
+
+      /* 状态栏与控件区半透明毛玻璃，让角色在全屏透出 */
+      .status-bar,
+      .controls {
+        background: rgba(30, 41, 59, 0.55);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
       }
 
       #live2d-canvas canvas {
@@ -867,6 +875,54 @@
       return true;
     }
 
+    // ── Live2D 移动端居中 ────────────────────────────────────────────────
+    // oh-my-live2d 在移动端默认把模型放在舞台左上角（position (0,0) + anchor 接近 (0,0)），
+    // 这里读取模型实际包围盒，将模型中心对齐到 #live2d-canvas 的中心。
+    let centerResizeTimer = null;
+
+    /**
+     * 将 Live2D 角色在画布内居中显示（仅移动视口生效）。
+     */
+    function centerLive2DModel() {
+      if (!oml2dInstance?.models?.model || !live2dReady) return;
+      // 与 oh-my-live2d 的移动端判定保持一致（≤768px 使用 mobileScale/mobilePosition）
+      if (!window.matchMedia('(max-width: 768px)').matches) return;
+
+      const model = oml2dInstance.models.model;
+
+      // 以 PIXI 舞台元素的实际尺寸为坐标系（模型绘制与 getBounds 都基于它），
+      // 不依赖 #live2d-canvas 的布局尺寸
+      const stageEl = oml2dInstance.stage?.element;
+      if (!stageEl) return;
+      const stageW = stageEl.clientWidth;
+      const stageH = stageEl.clientHeight;
+      if (stageW <= 0 || stageH <= 0) return;
+
+      let bounds;
+      try {
+        bounds = model.getBounds();
+      } catch { /* 忽略：模型尚未就绪 */ return; }
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
+      // 移动端把角色放大到铺满屏幕高度：按当前包围盒高度等比放大到舞台高度
+      const baseScale = model.scale?.x || 0.04;
+      oml2dInstance.setModelScale((baseScale * stageH) / bounds.height);
+
+      // 放大后重新测量包围盒，将模型中心对齐到舞台中心（幂等，可反复调用）
+      const scaled = model.getBounds();
+      const dx = stageW / 2 - (scaled.x + scaled.width / 2);
+      const dy = stageH / 2 - (scaled.y + scaled.height / 2);
+      oml2dInstance.setModelPosition({ x: model.x + dx, y: model.y + dy });
+    }
+
+    /**
+     * 视口尺寸变化后延迟重新居中（防抖，避免横竖屏切换/滚动时频繁计算）。
+     */
+    function scheduleCenterLive2D() {
+      clearTimeout(centerResizeTimer);
+      centerResizeTimer = setTimeout(centerLive2DModel, 150);
+    }
+
     // ── Initialize Live2D ────────────────────────────────────────────────
     async function initLive2D() {
       const modelKey = localStorage.getItem('LIVE2D_MODEL') || 'hiyori';
@@ -893,6 +949,19 @@
               background: 'transparent',
               overflow: 'hidden',
             },
+            // oh-my-live2d 移动端分支只合并 mobileStageStyle（stageStyle 仅桌面生效），
+            // 不设置的话舞台会退回默认的 fixed 定位小窗，角色无法在面板内显示
+            mobileStageStyle: {
+              position: 'relative',
+              left: 'auto',
+              right: 'auto',
+              bottom: 'auto',
+              transform: 'none',
+              width: '100%',
+              height: '100%',
+              background: 'transparent',
+              overflow: 'hidden',
+            },
             motionPreloadStrategy: 'IDLE',
           }],
           tips: {
@@ -907,6 +976,14 @@
 
         live2dReady = true;
         markProgress('Live2D', 'done');
+
+        // 库的 load 事件先于内部 settingModel（重置位置）触发，
+        // 因此延后到当前任务链结束后再居中，避免被覆盖
+        oml2dInstance.events.add('load', (status) => {
+          if (status === 'success') setTimeout(centerLive2DModel, 0);
+        });
+        centerLive2DModel();
+        window.addEventListener('resize', scheduleCenterLive2D);
       } catch (err) {
         console.warn('Live2D 加载失败:', err);
         markProgress('Live2D', 'pending');
