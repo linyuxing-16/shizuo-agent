@@ -331,6 +331,22 @@
       </div>
     </div>
 
+    <!-- Tavily 联网搜索配置 -->
+    <div class="card">
+      <div class="card-title">🔍 Tavily 联网搜索</div>
+      <div class="field">
+        <label>API Key</label>
+        <input
+          type="password"
+          id="tavilyApiKey"
+          placeholder="tvly-..."
+          autocomplete="off"
+        />
+        <div class="status" id="tavilyStatus"></div>
+        <div class="hint">可选。配置后 AI 助手在需要实时/最新信息时自动联网搜索；未配置则跳过该能力。需在 <code>localStorage</code> 中配置 <code>TAVILY_API_KEY</code></div>
+      </div>
+    </div>
+
     <!-- Live2D 模型配置 -->
     <div class="card">
       <div class="card-title">🎨 Live2D 角色</div>
@@ -379,12 +395,14 @@
     const userIdInput     = $('mem0UserId');
     const mimoInput       = $('mimoApiKey');
     const dashscopeInput  = $('dashscopeApiKey');
+    const tavilyInput     = $('tavilyApiKey');
     const live2dModelSelect = $('live2dModel');
     const live2dNameInput = $('live2dName');
     const deepseekStatus  = $('deepseekStatus');
     const mem0Status      = $('mem0Status');
     const mimoStatus      = $('mimoStatus');
     const dashscopeStatus = $('dashscopeStatus');
+    const tavilyStatus    = $('tavilyStatus');
     const saveBtn         = $('saveBtn');
     const clearBtn        = $('clearBtn');
     const toastEl         = $('toast');
@@ -407,6 +425,7 @@
       userIdInput.value   = localStorage.getItem('MEM0_USER_ID') || '';
       mimoInput.value     = localStorage.getItem('MIMO_API_KEY') || '';
       dashscopeInput.value  = localStorage.getItem('DASHSCOPE_API_KEY') || '';
+      tavilyInput.value   = localStorage.getItem('TAVILY_API_KEY') || '';
       live2dModelSelect.value = localStorage.getItem('LIVE2D_MODEL') || 'hiyori';
       live2dNameInput.value   = localStorage.getItem('LIVE2D_NAME') || '';
       updateStatus();
@@ -433,6 +452,11 @@
         ? `✓ 已配置 (${maskKey(dashscopeInput.value)})`
         : '○ 未配置';
       dashscopeStatus.className = `status ${dashscopeInput.value ? 'saved' : 'empty'}`;
+
+      tavilyStatus.textContent = tavilyInput.value
+        ? `✓ 已配置 (${maskKey(tavilyInput.value)})`
+        : '○ 未配置';
+      tavilyStatus.className = `status ${tavilyInput.value ? 'saved' : 'empty'}`;
     }
 
     function maskKey(key) {
@@ -448,6 +472,7 @@
       const userId    = userIdInput.value.trim() || 'default-user';
       const mimoKey   = mimoInput.value.trim();
       const dashscopeKey = dashscopeInput.value.trim();
+      const tavilyKey = tavilyInput.value.trim();
 
       if (!deepseekKey) {
         showToast('请填写 DeepSeek API Key', 'error');
@@ -479,6 +504,7 @@
       localStorage.setItem('MEM0_USER_ID', userId);
       localStorage.setItem('MIMO_API_KEY', mimoKey);
       localStorage.setItem('DASHSCOPE_API_KEY', dashscopeKey);
+      localStorage.setItem('TAVILY_API_KEY', tavilyKey);
       localStorage.setItem('LIVE2D_MODEL', live2dModelSelect.value);
       localStorage.setItem('LIVE2D_NAME', live2dNameInput.value.trim() || 'Shizuo');
 
@@ -496,6 +522,7 @@
       localStorage.removeItem('MIMO_TTS_DIALECT');
       localStorage.removeItem('MIMO_TTS_VOICE');
       localStorage.removeItem('DASHSCOPE_API_KEY');
+      localStorage.removeItem('TAVILY_API_KEY');
       localStorage.removeItem('LIVE2D_MODEL');
       localStorage.removeItem('LIVE2D_NAME');
 
@@ -504,6 +531,7 @@
       agentIdInput.value  = '';
       userIdInput.value   = '';
       mimoInput.value     = '';
+      tavilyInput.value   = '';
       live2dModelSelect.value = 'hiyori';
       live2dNameInput.value   = '';
 
@@ -515,6 +543,7 @@
     deepseekInput.addEventListener('input', updateStatus);
     mem0Input.addEventListener('input', updateStatus);
     mimoInput.addEventListener('input', updateStatus);
+    tavilyInput.addEventListener('input', updateStatus);
 
     // ── 按钮事件 ─────────────────────────────────────────────────────────
     saveBtn.addEventListener('click', saveConfig);

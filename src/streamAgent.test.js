@@ -33,6 +33,10 @@ vi.mock('./memory.js', () => ({
   searchMemoryTool: {},
 }));
 
+vi.mock('./search.js', () => ({
+  createSearchTool: () => null,
+}));
+
 // ── Mock localStorage（getAgent 仅在调用时读取） ──────────────────────────
 const store = {};
 vi.stubGlobal('localStorage', {

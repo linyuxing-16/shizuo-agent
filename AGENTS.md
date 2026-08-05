@@ -29,18 +29,20 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 - **`src/wakeword.js`** — ASR 周期检测唤醒词 + VAD（RMS 阈值 0.01），`voiceActivate(wakeWord, silenceTimeoutMs)` 返回 ASR 结果 JSON 字符串（含唤醒词）
 - **`src/audioPlayer.js`** — 纯 Web Audio API，`playPcm16(Int16Array)` 24kHz 播放
 - **`src/memory.js`** — Mem0 长期记忆；`memoryMiddleware`（`after_agent` 中间件）自动保存对话，`searchMemoryTool`（名称 `search_memory`）供 agent 使用
+- **`src/search.js`** — Tavily 联网搜索；`createSearchTool()` 从 localStorage 读取 `TAVILY_API_KEY`，未配置时返回 `null`（agent 不注册搜索工具），配置后注册 `TavilySearch`（工具名 `tavily_search`）
 - **`index.html`** — 主界面 + Live2D（oh-my-live2d）+ 语音循环
 - **`config.html`** — 配置页，所有 API Key 存 `localStorage`
 
 ### 数据流
 
-1. `voiceActivate` 唤醒检测（ASR 周期检测）→ 指令识别（ASR）→ agent 推理（含记忆搜索） → TTS → 音频播放
+1. `voiceActivate` 唤醒检测（ASR 周期检测）→ 指令识别（ASR）→ agent 推理（含记忆搜索与联网搜索） → TTS → 音频播放
 2. 用户可通过 `AbortController` + `Promise.race` 中断语音循环
 
 ### 依赖说明
 
 - `openai` SDK 复用于 MIMO API（非 OpenAI），base URL `https://api.xiaomimimo.com/v1`
 - `langchain` 的 `tool` 和 `createMiddleware` 从 `'langchain'` 直接导入
+- `@langchain/tavily` 提供 `TavilySearch` 搜索工具，浏览器端通过 `fetch` 直连 `https://api.tavily.com`（支持 CORS，无需代理）
 - Vite 构建时 `oh-my-live2d` / `mem0ai` 的 Node.js 模块引用会被 tree-shake 移除，不影响浏览器运行
 
 ## 编码规范
@@ -91,6 +93,7 @@ Shizuo Agent 是一个**浏览器端 AI 语音助手**，实现语音唤醒 → 
 | `MEM0_AGENT_ID` | Mem0 Agent ID（默认 `default-agent`） | ❌ |
 | `MEM0_USER_ID` | Mem0 User ID（默认 `default-user`） | ❌ |
 | `DASHSCOPE_API_KEY` | 阿里云百炼 API Key（Qwen3 TTS） | ✅ |
+| `TAVILY_API_KEY` | Tavily 联网搜索 API Key（未配置时不注册搜索工具） | ❌ |
 | `WAKE_WORD` | 自定义唤醒词（默认 `你好 助手`） | ❌ |
 
 ## 部署

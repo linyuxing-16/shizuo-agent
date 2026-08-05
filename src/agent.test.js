@@ -19,6 +19,14 @@ vi.mock('@langchain/deepseek', () => ({
   ChatDeepSeek: class {},
 }));
 
+vi.mock('@langchain/tavily', () => ({
+  TavilySearch: class {
+    constructor(params) {
+      this.params = params;
+    }
+  },
+}));
+
 vi.mock('@langchain/langgraph-checkpoint', () => ({
   MemorySaver: MemorySaverMock,
 }));
@@ -89,5 +97,60 @@ describe('agent 惰性初始化', () => {
 
     await agent.clearThread('t');
     expect(checkpointer.deleteThread).toHaveBeenCalledWith('t');
+  });
+});
+
+describe('联网搜索工具注册', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    createAgentMock.mockReset();
+  });
+
+  it('设置 TAVILY_API_KEY 时注册搜索工具并附带联网搜索提示词', async () => {
+    store.DEEPSEEK_API_KEY = 'test-key';
+    store.TAVILY_API_KEY = 'tvly-test';
+
+    const captured = {};
+    createAgentMock.mockImplementation((config) => {
+      captured.tools = config.tools;
+      captured.systemPrompt = config.systemPrompt;
+      return { invoke: async () => 'ok', stream: async () => {} };
+    });
+
+    const { default: freshAgent } = await import('./agent.js');
+    await freshAgent.invoke(
+      { messages: [] },
+      { configurable: { thread_id: 't' } },
+    );
+
+    expect(createAgentMock).toHaveBeenCalledTimes(1);
+    expect(captured.tools).toHaveLength(2);
+    expect(captured.tools[1].params).toEqual({
+      tavilyApiKey: 'tvly-test',
+      maxResults: 5,
+    });
+    expect(captured.systemPrompt).toContain('联网搜索');
+  });
+
+  it('未设置 TAVILY_API_KEY 时不注册搜索工具且提示词不含联网搜索', async () => {
+    store.DEEPSEEK_API_KEY = 'test-key';
+
+    const captured = {};
+    createAgentMock.mockImplementation((config) => {
+      captured.tools = config.tools;
+      captured.systemPrompt = config.systemPrompt;
+      return { invoke: async () => 'ok', stream: async () => {} };
+    });
+
+    const { default: freshAgent } = await import('./agent.js');
+    await freshAgent.invoke(
+      { messages: [] },
+      { configurable: { thread_id: 't' } },
+    );
+
+    expect(createAgentMock).toHaveBeenCalledTimes(1);
+    expect(captured.tools).toHaveLength(1);
+    expect(captured.systemPrompt).not.toContain('联网搜索');
   });
 });

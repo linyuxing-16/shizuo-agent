@@ -3,6 +3,7 @@ import { ChatDeepSeek } from '@langchain/deepseek';
 import { MemorySaver } from '@langchain/langgraph-checkpoint';
 import { IndexedDBCheckpointer } from './indexedDbCheckpointer.js';
 import { memoryMiddleware, searchMemoryTool } from './memory.js';
+import { createSearchTool } from './search.js';
 
 /**
  * AI 助手 agent，集成记忆系统
@@ -27,11 +28,22 @@ import { memoryMiddleware, searchMemoryTool } from './memory.js';
  * // 当消息 token 数达到 128000 时自动摘要历史消息，保留最近 20 条
  */
 
-const SYSTEM_PROMPT =
-  '你是一个智能 AI 助手，拥有长期记忆能力。' +
-  '你可以使用 search_memory 工具搜索历史对话记忆，' +
-  '以记住用户之前提到过的信息。' +
-  '在回答时，如果有相关记忆，请基于记忆内容提供个性化回复。';
+const SYSTEM_PROMPT_BASE =
+  '你是一个智能 AI 语音助手（Shizuo Agent），运行在浏览器中，' +
+  '通过语音与用户交流，你的回答会通过语音合成（TTS）朗读给用户。' +
+  '你具备以下能力：' +
+  '1. 多轮对话记忆：你能记住当前会话中用户说过的内容，回答时保持上下文连贯；' +
+  '2. 长期记忆：你可以调用 search_memory 工具搜索历史对话记忆，' +
+  '   当用户提到过往信息时，请基于记忆内容提供个性化回复；' +
+  '3. 记忆自动保存：每次对话结束后，系统会自动把对话内容存入长期记忆。';
+
+const SYSTEM_PROMPT_SEARCH =
+  '4. 联网搜索：当需要实时、最新或需要事实核查的信息时，' +
+  '   使用网络搜索工具获取搜索结果，并基于结果回答用户。';
+
+const SYSTEM_PROMPT_TAIL =
+  '回答要求：使用自然、简洁、口语化的中文，避免 Markdown 格式' +
+  '（如列表、表格、代码块），因为你的回答会通过语音朗读给用户。';
 
 const CHECKPOINTER_DB_NAME = 'shizuo-agent-checkpoints';
 
@@ -82,9 +94,15 @@ async function getAgent() {
     const model = new ChatDeepSeek({ model: 'deepseek-chat', apiKey });
     checkpointerInstance = await createCheckpointer();
 
+    const searchTool = createSearchTool();
+    const systemPrompt =
+      SYSTEM_PROMPT_BASE +
+      (searchTool ? SYSTEM_PROMPT_SEARCH : '') +
+      SYSTEM_PROMPT_TAIL;
+
     agentInstance = createAgent({
       model,
-      tools: [searchMemoryTool],
+      tools: [searchMemoryTool, ...(searchTool ? [searchTool] : [])],
       middleware: [
         summarizationMiddleware({
           model,
@@ -94,7 +112,7 @@ async function getAgent() {
         memoryMiddleware,
       ],
       checkpointer: checkpointerInstance,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
     });
   }
   return agentInstance;
